@@ -242,6 +242,11 @@ def main():
     if program_details_to_upsert:
         print(f"\n✅ {len(program_details_to_upsert)}件の詳細情報を取得。DBに登録します...")
         supabase.table('programs').upsert(program_details_to_upsert, on_conflict='event_id').execute()
+    
+    print("\n🎉 全ての処理が正常に完了しました。")
+    
+    # ▼▼▼ この一行を追加 ▼▼▼
+    return len(epg_data_to_upsert), len(program_details_to_upsert)
         
 if __name__ == '__main__':
     # 処理対象の日付範囲を先に定義
@@ -264,6 +269,7 @@ if __name__ == '__main__':
             f"**番組詳細**: {detail_count}件 取得"
         )
         send_discord_notification(success_message)
+        
 
     except Exception as e:
         error_message = f"🚨 番組表スクリプトでエラーが発生しました。\n\n**エラー内容**:\n```\n{e}\n```"
