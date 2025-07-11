@@ -3,8 +3,8 @@ name: TV Program Scraper
 on:
   workflow_dispatch: # 手動実行を許可
   schedule:
-    # 毎日AM7時(JST)に実行 (UTCで22時)
-    - cron: '0 22 * * *'
+    # 毎日AM4時(JST)に実行 (UTCで前日19時)
+    - cron: '0 19 * * *'  
 
 jobs:
   scrape:
