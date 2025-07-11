@@ -233,7 +233,7 @@ def main():
                 print(f"  -> クラウドJSON保存完了: {storage_path}")
             except Exception as storage_e:
                 print(f"  -> ⚠️ クラウドJSON保存エラー: {storage_e}")
-# --- ▲▲▲ ここまで修正 ▲▲▲ ---
+
             time.sleep(random.uniform(1.5, 2.5))
         except Exception as e:
             print(f"  -> 詳細取得エラー: {program['program_title']} - {e}")
@@ -241,7 +241,7 @@ def main():
 
     if program_details_to_upsert:
         print(f"\n✅ {len(program_details_to_upsert)}件の詳細情報を取得。DBに登録します...")
-        supabase.table('programs').upsert
+        supabase.table('programs').upsert(program_details_to_upsert, on_conflict='event_id').execute()
         
 if __name__ == '__main__':
     # 処理対象の日付範囲を先に定義
