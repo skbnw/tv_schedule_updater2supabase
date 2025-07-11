@@ -1,0 +1,37 @@
+channel_code,channel_name,type
+NHKG-TKY,"NHK総合",地上波
+NHKE-TKY,"NHKEテレ",地上波
+NTV-TKY,"日テレ",地上波
+TV-ASAHI-TKY,"テレビ朝日",地上波
+TBS-TKY,"TBS",地上波
+TV-TOKYO-TKY,"テレ東",地上波
+FUJI-TV-TKY,"フジテレビ",地上波
+TOKYO-MX,"TOKYO",地上波
+TVS,"テレ玉",地上波
+CTC,"チバテレ",地上波
+TVK,"tvk",地上波
+NHK-BS,"ＮＨＫ　ＢＳ",BS
+BS-NTV,"BS日テレ",BS
+BS-ASAHI,"BS朝日",BS
+BS-TBS,"BS-TBS",BS
+BS-TV-TOKYO,"ＢＳテレ東",BS
+BS-FUJI,"BSフジ",BS
+BS11,"BS11",BS
+BS12-TWELLV,"BS12",BS
+BS-YOSHIMOTO,"ＢＳよしもと",BS
+OUJ-TV-BS,"放送大学",BS
+WOWOW-PRIME-BS,"WOWOWプ",BS
+WOWOW-LIVE-BS,"WOWOWライブ",BS
+WOWOW-CINEMA-BS,"WOWOWシネマ",BS
+WOWOW-PLUS-BS,"WOWOWプラス",BS
+STAR-CH-BS,"スターｃｈ",BS
+JSPORTS-1-BS,"J SPORTS 1",BS
+JSPORTS-2-BS,"J SPORTS 2",BS
+JSPORTS-3-BS,"J SPORTS 3",BS
+JSPORTS-4-BS,"J SPORTS 4",BS
+GREEN-CH-BS,"グリーンチャンネル",BS
+ANIMAX-BS,"BSアニマックス",BS
+TSURIVISION-BS,"BS釣りビジョン",BS
+DISNEY-CH-BS,"ディズニーch",BS
+NIHON-EIGA-BS,"日本映画専門ch",BS
+JCOM-BS,"J:COM",その他
