@@ -43,16 +43,26 @@ CHANNEL_MAPPING = {
     # その他
     "JCOM-BS": "J:COM"
 }
-# --- ▲ 設定はここまで ---
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def send_discord_notification(message):
-    if not DISCORD_WEBHOOK_URL: return
+    if not DISCORD_WEBHOOK_URL:
+        print("⚠️ Discord Webhook URLが設定されていません。")
+        return
+    
+    print("Discordへの通知を試みます...")
     try:
-        requests.post(DISCORD_WEBHOOK_URL, json={"content": message}, timeout=10)
-    except Exception as e:
-        print(f"Discord通知の送信に失敗: {e}")
+        response = requests.post(DISCORD_WEBHOOK_URL, json={"content": message}, timeout=15)
+        # HTTPステータスコードが2xx（成功）でない場合に例外を発生させる
+        response.raise_for_status()
+        print("✅ Discordへの通知を正常に送信しました。")
+    except requests.exceptions.RequestException as e:
+        # 通信エラーやHTTPエラーをキャッチして詳細を出力
+        print(f"❌ Discord通知の送信に失敗しました: {e}")
+        if e.response is not None:
+            print(f" -> Response Status: {e.response.status_code}")
+            print(f" -> Response Body: {e.response.text}")
 
 def archive_old_db_records():
     print("\n--- 古いデータベースレコードのアーカイブ開始 ---")
@@ -94,7 +104,7 @@ def main():
     # --- 1. EPG基本情報の取得 ---
     epg_data_to_upsert = []
     processed_event_ids = set()
-    target_dates = [(datetime.now() + timedelta(days=i)) for i in range(-1, 9)]
+    target_dates = [(datetime.now() + timedelta(days=i)) for i in range(-1, 8)]
 
     print("\n--- EPG基本情報の取得開始 ---")
     for ch_type in ["td", "bs"]:
