@@ -195,13 +195,26 @@ def main():
                 href = a.get("href", "")
                 if name and href and not href.rstrip("/").endswith("talents"):
                     performer_links[name] = "https://bangumi.org" + href if href.startswith("/") else href
-            
+                                
             talents_to_upsert = []
             for name, link in performer_links.items():
-                talent_id = link.split("/")[-1].split("?")[0]
-                if talent_id and talent_id.isdigit():
-                    talents_to_upsert.append({ 'talent_id': talent_id, 'name': name, 'link': link })
+                if not name or not link:
+                    continue  # 名前またはリンクが空ならスキップ
             
+                try:
+                    # URLの最後の部分から talent_id を抽出（例: "/talents/172499" → "172499"）
+                    talent_id = link.rstrip("/").split("/")[-1].split("?")[0]
+                    
+                    if talent_id.isdigit():
+                        talents_to_upsert.append({
+                            'talent_id': talent_id,
+                            'name': name,
+                            'link': link
+                        })
+                except Exception as e:
+                    print(f"⚠️ タレント情報の解析に失敗しました: name={name}, link={link}, error={e}")
+                    continue
+         
             appearances_to_insert = [{'program_event_id': program['event_id'], 'talent_id': talent['talent_id']} for talent in talents_to_upsert]
 
             db_data = {
