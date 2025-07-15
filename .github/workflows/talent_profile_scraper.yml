@@ -21,7 +21,7 @@ on:
         type: string
       
   schedule:
-    - cron: '0 19 * * 0'  # Every Sunday at 4 AM JST
+    - cron: '0 18 * * 0'  # Every Sunday at 3 AM JST
 
 env:
   SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -41,7 +41,6 @@ jobs:
       uses: actions/setup-python@v4
       with:
         python-version: '3.11'
-        cache: 'pip'
     
     - name: Install dependencies
       run: |
