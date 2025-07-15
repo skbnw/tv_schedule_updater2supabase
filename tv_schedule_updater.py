@@ -151,6 +151,104 @@ def send_discord_notification(message):
             print(f" -> Response Status: {e.response.status_code}")
             print(f" -> Response Body: {e.response.text}")
 
+def check_existing_tables():
+    """既存テーブルの確認と構造把握"""
+    print("\n--- 既存テーブル構造の確認 ---")
+    
+    # 想定されるテーブル名のパターン
+    possible_tables = [
+        'programs_epg',
+        'programs', 
+        'talents',
+        'appearances',                    # 新しい名前
+        'program_talent_appearances',     # 既存の名前
+        'program_appearances',            # 他の可能性
+        'talent_appearances'              # 他の可能性
+    ]
+    
+    existing_tables = {}
+    
+    for table_name in possible_tables:
+        try:
+            result = supabase.table(table_name).select("*").limit(1).execute()
+            existing_tables[table_name] = "存在"
+            print(f"✅ {table_name}: 存在確認 ({len(result.data)}件のサンプル)")
+        except Exception as e:
+            if "does not exist" in str(e).lower():
+                existing_tables[table_name] = "存在しない"
+            else:
+                existing_tables[table_name] = f"エラー: {e}"
+                print(f"⚠️ {table_name}: {e}")
+    
+    # 出演情報テーブルの特定
+    appearances_table = None
+    if existing_tables.get('program_talent_appearances') == "存在":
+        appearances_table = 'program_talent_appearances'
+        print(f"🎯 出演情報テーブル特定: {appearances_table}")
+    elif existing_tables.get('appearances') == "存在":
+        appearances_table = 'appearances'
+        print(f"🎯 出演情報テーブル特定: {appearances_table}")
+    else:
+        print("❌ 出演情報テーブルが見つかりません")
+    
+    return appearances_table, existing_tables
+
+def safe_upsert_appearances(appearances_data, table_name, batch_size=500):
+    """安全な出演情報登録（既存テーブル名対応）"""
+    if not appearances_data or not table_name:
+        print("📝 出演情報の登録をスキップします。")
+        return 0, 0
+    
+    success_count = 0
+    error_count = 0
+    
+    print(f"📝 出演情報登録開始: {len(appearances_data)}件 → {table_name}")
+    
+    # テーブル構造の確認
+    try:
+        sample = supabase.table(table_name).select("*").limit(1).execute()
+        if sample.data:
+            print(f"📋 テーブル構造確認: {list(sample.data[0].keys())}")
+    except Exception as e:
+        print(f"⚠️ テーブル構造確認失敗: {e}")
+    
+    for i in range(0, len(appearances_data), batch_size):
+        batch = appearances_data[i:i + batch_size]
+        try:
+            # 既存テーブル名を使用
+            result = supabase.table(table_name).upsert(
+                batch, 
+                on_conflict=["program_event_id", "talent_id"]
+            ).execute()
+            
+            success_count += len(batch)
+            print(f"  -> 出演バッチ {i//batch_size + 1}: {len(batch)}件登録完了")
+            
+        except Exception as e:
+            error_count += len(batch)
+            print(f"  -> 出演バッチ {i//batch_size + 1} 登録エラー: {e}")
+            
+            # より詳細なエラー分析
+            if "constraint" in str(e).lower():
+                print("    💡 制約エラー: on_conflict設定またはカラム名の不一致")
+            elif "column" in str(e).lower():
+                print("    💡 カラム名エラー: program_event_id, talent_id の名前確認が必要")
+            
+            # 小さなバッチで再試行
+            if len(batch) > 1:
+                print(f"    🔄 小さなバッチで再試行...")
+                for j in range(0, len(batch), 10):
+                    mini_batch = batch[j:j + 10]
+                    try:
+                        supabase.table(table_name).upsert(mini_batch).execute()
+                        success_count += len(mini_batch)
+                        error_count -= len(mini_batch)
+                        print(f"      -> ミニバッチ成功: {len(mini_batch)}件")
+                    except Exception as mini_error:
+                        print(f"      -> ミニバッチ失敗: {mini_error}")
+    
+    return success_count, error_count
+
 def validate_json_data(data):
     """JSONデータの妥当性を検証"""
     try:
@@ -267,6 +365,9 @@ def main():
     print("🚀 【テストモード】スクリプトを開始します。")
     print(f"📋 取得対象チャンネル: {TARGET_CHANNELS}")
     print(f"📅 取得日数: {TARGET_DAYS}日")
+
+    # 既存テーブル構造の確認
+    appearances_table_name, table_status = check_existing_tables()
 
     # --- 1. EPG基本情報の取得 ---
     epg_data_to_upsert = []
@@ -498,22 +599,21 @@ def main():
             except Exception as e:
                 print(f"  -> 詳細バッチ {i//batch_size + 1} 登録エラー: {e}")
 
-    if appearances_to_upsert:
-        print(f"✅ {len(appearances_to_upsert)}件の出演情報をappearancesテーブルに登録します...")
-        batch_size = 1000
-        for i in range(0, len(appearances_to_upsert), batch_size):
-            batch = appearances_to_upsert[i:i + batch_size]
-            try:
-                supabase.table('appearances').upsert(batch, on_conflict=["program_event_id", "talent_id"]).execute()
-                print(f"  -> 出演バッチ {i//batch_size + 1}: {len(batch)}件登録完了")
-            except Exception as e:
-                print(f"  -> 出演バッチ {i//batch_size + 1} 登録エラー: {e}")
+    # --- 4. 出演情報登録（既存テーブル名使用） ---
+    if appearances_to_upsert and appearances_table_name:
+        success, errors = safe_upsert_appearances(appearances_to_upsert, appearances_table_name)
+        print(f"✅ 出演情報登録結果: 成功 {success}件, 失敗 {errors}件")
+    elif not appearances_table_name:
+        print("⚠️ 出演情報テーブルが特定できないため、出演情報の登録をスキップします。")
+    else:
+        print("📝 出演情報なし")
 
     print(f"\n📊 【テスト結果】")
     print(f"  • EPG取得: {len(epg_data_to_upsert)}件")
     print(f"  • 詳細取得: {len(program_details_to_upsert)}件")
     print(f"  • JSON保存: 成功 {json_upload_success}件, 失敗 {json_upload_errors}件")
     print(f"  • チャンネル数: {len(channel_mapping_results)}局")
+    print(f"  • 使用した出演情報テーブル: {appearances_table_name}")
     
     print("\n🎉 テストが正常に完了しました。")
     
@@ -534,7 +634,8 @@ if __name__ == '__main__':
             f"**処理期間**: {start_date} ～ {end_date}\n"
             f"**番組概要**: {epg_count}件 取得\n"
             f"**番組詳細**: {detail_count}件 取得\n"
-            f"**テスト対象**: NHK総合, テレ東, BSテレ東, BS11"
+            f"**テスト対象**: NHK総合, テレ東, BSテレ東, BS11\n"
+            f"**修正点**: 既存テーブル program_talent_appearances に対応"
         )
         send_discord_notification(success_message)
         
