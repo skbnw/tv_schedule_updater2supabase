@@ -1,0 +1,66 @@
+# .github/workflows/talent_profile_scraper.yml
+
+name: 🎭 タレントプロフィール取得
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '実行モード'
+        required: true
+        default: 'batch'
+        type: choice
+        options:
+          - test
+          - batch
+          - full
+      offset:
+        description: '開始位置'
+        required: false
+        default: '0'
+        type: string
+      
+  schedule:
+    - cron: '0 20 * * 0'  # 毎週日曜日
+
+env:
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+  DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+
+jobs:
+  scrape-profiles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    
+    steps:
+    - name: 📥 チェックアウト
+      uses: actions/checkout@v4
+    
+    - name: 🐍 Python環境セットアップ
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: 📦 依存関係インストール
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests beautifulsoup4 supabase python-dotenv
+    
+    - name: 🎭 タレントプロフィール取得実行
+      run: |
+        MODE="${{ github.event.inputs.mode || 'batch' }}"
+        OFFSET="${{ github.event.inputs.offset || '0' }}"
+        
+        echo "🚀 実行開始: モード=$MODE, オフセット=$OFFSET"
+        python talent_profile_scraper.py --mode $MODE --offset $OFFSET
+    
+    - name: 📊 実行結果アップロード
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: scraping-results-${{ github.run_number }}
+        path: |
+          talent_scraping_errors_*.json
+        retention-days: 30
