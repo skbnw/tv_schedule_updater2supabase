@@ -631,11 +631,6 @@ if __name__ == '__main__':
             f"  • 番組概要: {epg_count}件\n"
             f"  • 番組詳細: {detail_count}件\n"
             f"**📺 対象チャンネル**: 地上波7局 + BS7局\n"
-            f"**🔧 修正内容**:\n"
-            f"  • チャンネルマッピング問題解決\n"
-            f"  • JSON保存エラー解決\n"
-            f"  • 既存テーブル構造対応\n"
-            f"**🚀 ステータス**: 本格運用開始"
         )
         send_discord_notification(success_message)
         
