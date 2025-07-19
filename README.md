@@ -68,6 +68,27 @@ erDiagram
 
 通知: Discord Webhooks
 
+## 主要機能
+
+### 番組データ取得
+- 地上波7局 + BS7局 = 計14局の番組表を自動取得
+- 7日分の番組データを毎日更新
+- 番組詳細情報（タイトル、説明、ジャンル等）を取得
+
+### 出演者情報抽出（強化版）
+- HTMLの複数セクションから出演者情報を抽出
+  - `ul.addition`セクション
+  - `ul.talent_panel`セクション
+- `description_detail`からも出演者情報を抽出
+- 役職と名前の組み合わせを正確に解析
+- 重複除去とデータ統合
+
+### データ管理
+- Supabaseデータベースへの自動登録
+- JSONファイルのバックアップ保存
+- 古いデータの自動アーカイブ
+- 出演者情報の継続的な補完
+
 セットアップ手順
 1. 前提条件
 Python 3.10以上
@@ -122,7 +143,14 @@ DISCORD_WEBHOOK_URL: 通知を送りたいDiscordチャンネルのWebhook URL
 
 使用方法
 自動実行
-本プロジェクトは、.github/workflows/main.ymlの定義に基づき、毎日午前4時（JST）に自動でtv_schedule_updater.pyを実行します。
+本プロジェクトは、以下のGitHub Actionsワークフローにより自動実行されます：
+
+- **main.yml**: メインの番組表取得（毎日午前4時 JST）
+- **supplement_appearances.yml**: 出演者情報の補完（毎日午前3時 JST）
+  - ローカルJSONファイルの出演者情報補完
+  - SupabaseストレージのJSONファイル更新
+- **talent_profile_scraper.yml**: タレントプロフィール取得
+
 また、GitHubのActionsタブから手動で実行することも可能です。
 
 ローカルでのテスト実行
@@ -138,7 +166,15 @@ $env:DISCORD_WEBHOOK_URL="https://..."
 
 python tv_schedule_updater.py
 スクリプト一覧
-tv_schedule_updater.py: このプロジェクトのメインスクリプト。データの収集、登録、バックアップ、アーカイブを全て行います。
+tv_schedule_updater.py: このプロジェクトのメインスクリプト。データの収集、登録、バックアップ、アーカイブを全て行います。出演者情報の抽出機能が強化されており、HTMLの複数セクションとdescription_detailから出演者情報を取得します。
+
+supplement_appearances_from_json.py: ローカルに保存されたJSONファイルから不足している出演者情報を抽出し、データベースに補完するユーティリティ。
+
+update_existing_json.py: 既存のローカルJSONファイルを更新し、不足している出演者情報をWebから再スクレイピングして補完するユーティリティ。
+
+update_supabase_storage.py: SupabaseストレージのJSONファイルを一括で更新し、不足している出演者情報を補完するユーティリティ。
+
+talent_profile_scraper.py: タレントのプロフィール情報を取得するスクリプト。
 
 import_local_json.py: ローカルに保存された多数のJSONファイルを一括でデータベースにインポートするためのユーティリティ。
 
@@ -146,7 +182,19 @@ migrate_from_sqlite.py: 古いSQLiteデータベースからデータを移行�
 
 update_channel_codes.py: データベース内の既存のchannel_codeを更新するためのユーティリティ。
 
-将来の展望
+## 最近の改善点
+
+### 出演者情報抽出の強化（2025年1月）
+- `description_detail`からの出演者情報抽出機能を追加
+- 複数ソースからの出演者情報統合処理を改善
+- 日曜討論などの複雑な番組でも正確な出演者情報を取得
+
+### 自動補完システムの導入
+- 既存データの出演者情報を自動で補完
+- SupabaseストレージのJSONファイルも自動更新
+- データ品質の継続的な向上
+
+## 将来の展望
 トランスクリプト連携: 音声認識などで生成した番組のトランスクリプトデータをMongoDBに格納。
 
 LLMによる要約: SupabaseのメタデータとMongoDBのトランスクリプトデータを組み合わせ、LLMに与えることで高品質な番組概要メモを自動生成する。
