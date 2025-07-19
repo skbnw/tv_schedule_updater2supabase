@@ -1,0 +1,61 @@
+{
+  "event_id": "AkZgQAVzwAM",
+  "broadcast_date": "2025-07-13",
+  "channel": "1 NHK総合1..",
+  "start_time": "202507130900",
+  "end_time": "202507131020",
+  "master_title": "日曜討論 投開票まで1週間 参院選の争点を問う",
+  "program_title": "日曜討論 投開票まで1週間 参院選の争点を問う",
+  "description": "今月２０日に迫る参院選の争点について与野党が徹底討論！▽コメの価格はどうなる？今後のコメ政策は▽「政治とカネ」の問題は▽アメリカとの関税交渉は▽選択的夫婦別姓は",
+  "description_detail": "【出演】自由民主党幹事長・森山裕、立憲民主党幹事長・小川淳也、日本維新の会幹事長・岩谷良平、公明党幹事長・西田実仁、国民民主党幹事長・榛葉賀津也、日本共産党書記局長・小池晃、れいわ新選組代表・山本太郎、参政党代表・神谷宗幣、日本保守党事務総長・有本香、社会民主党副党首・大椿ゆうこ【司会】ＮＨＫ解説委員・山下毅、ＮＨＫアナウンサー・上原光紀",
+  "genre": "ニュース／報道",
+  "official_website": "https://www.nhk.jp/p/touron/ts/GG149Z2M64/",
+  "channel_code": "NHKG-TKY",
+  "performers": [
+    {
+      "talent_id": "172499",
+      "name": "小川淳也",
+      "link": "https://bangumi.org/talents/172499"
+    },
+    {
+      "talent_id": "232855",
+      "name": "西田実仁",
+      "link": "https://bangumi.org/talents/232855"
+    },
+    {
+      "talent_id": "355854",
+      "name": "榛葉賀津也",
+      "link": "https://bangumi.org/talents/355854"
+    },
+    {
+      "talent_id": "138242",
+      "name": "小池晃",
+      "link": "https://bangumi.org/talents/138242"
+    },
+    {
+      "talent_id": "349522",
+      "name": "山本太郎",
+      "link": "https://bangumi.org/talents/349522"
+    },
+    {
+      "talent_id": "393994",
+      "name": "神谷宗幣",
+      "link": "https://bangumi.org/talents/393994"
+    },
+    {
+      "talent_id": "238755",
+      "name": "有本香",
+      "link": "https://bangumi.org/talents/238755"
+    },
+    {
+      "talent_id": "383312",
+      "name": "山下毅",
+      "link": "https://bangumi.org/talents/383312"
+    },
+    {
+      "talent_id": "251462",
+      "name": "上原光紀",
+      "link": "https://bangumi.org/talents/251462"
+    }
+  ]
+}

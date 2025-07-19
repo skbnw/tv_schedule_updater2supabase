@@ -322,6 +322,96 @@ def safe_extract_talent_info(link_element):
         print(f"⚠️ タレント情報抽出エラー: {e}")
         return None
 
+def extract_performers_from_html(soup_detail):
+    """HTMLから出演者情報を抽出（改良版）"""
+    performers = {}
+    
+    try:
+        # 方法1: ul.addition内の出演者情報を取得
+        addition_section = soup_detail.find("ul", class_="addition")
+        if addition_section:
+            performer_text = addition_section.get_text(strip=True)
+            print(f"  🔍 出演者テキスト検出: {performer_text[:100]}...")
+            
+            # 出演者リンクを抽出
+            performer_links = addition_section.find_all("a", href=lambda x: x and "/talents/" in x)
+            for link in performer_links:
+                talent_info = safe_extract_talent_info(link)
+                if talent_info:
+                    performers[talent_info["name"]] = talent_info["link"]
+        
+        # 方法2: ul.talent_panel内のタレント情報を取得
+        talent_panel = soup_detail.find("ul", class_="talent_panel")
+        if talent_panel:
+            talent_links = talent_panel.find_all("a", href=lambda x: x and "/talents/" in x)
+            for link in talent_links:
+                talent_info = safe_extract_talent_info(link)
+                if talent_info:
+                    performers[talent_info["name"]] = talent_info["link"]
+        
+        # 方法3: ページ全体からタレントリンクを取得（フォールバック）
+        if not performers:
+            all_talent_links = soup_detail.find_all("a", href=lambda x: x and "/talents/" in x)
+            for link in all_talent_links:
+                talent_info = safe_extract_talent_info(link)
+                if talent_info:
+                    performers[talent_info["name"]] = talent_info["link"]
+        
+        # 方法4: description_detailから出演者情報を抽出（補完）
+        description_detail = soup_detail.find('meta', {'name': 'description'})
+        if description_detail:
+            detail_text = description_detail.get('content', '')
+            if detail_text and '【出演】' in detail_text:
+                extracted_performers = extract_performers_from_description(detail_text)
+                for performer in extracted_performers:
+                    name = performer.get('name', '')
+                    if name and name not in performers:
+                        # talent_idがない場合は仮のIDを生成
+                        performers[name] = f"extracted_{hash(name) % 1000000}"
+        
+        print(f"  👥 出演者検出: {len(performers)}名")
+        if performers:
+            for name in list(performers.keys())[:3]:  # 最初の3名を表示
+                print(f"    - {name}")
+            if len(performers) > 3:
+                print(f"    ... 他{len(performers) - 3}名")
+        
+    except Exception as e:
+        print(f"⚠️ 出演者情報抽出エラー: {e}")
+    
+    return performers
+
+def extract_performers_from_description(description_text):
+    """description_detailから出演者情報を抽出"""
+    performers = []
+    
+    try:
+        # 【出演】セクションを抽出
+        if '【出演】' in description_text:
+            start = description_text.find('【出演】') + len('【出演】')
+            end = description_text.find('【', start)
+            if end == -1:
+                end = len(description_text)
+            performer_section = description_text[start:end].strip()
+            
+            # 役職・名前のパターンを抽出
+            import re
+            pattern = r'([^・]+)・([^、]+)'
+            matches = re.findall(pattern, performer_section)
+            
+            for role, name in matches:
+                performers.append({
+                    'name': name.strip(),
+                    'role': role.strip()
+                })
+            
+            print(f"  📝 description_detailから{len(performers)}名の出演者を抽出")
+    
+    except Exception as e:
+        print(f"⚠️ description_detailからの出演者抽出エラー: {e}")
+    
+    return performers
+
 def archive_old_db_records():
     print("\n--- 古いデータベースレコードのアーカイブ開始 ---")
     cutoff_date_str = (datetime.now() - timedelta(days=ROTATION_DAYS)).strftime('%Y-%m-%d')
@@ -454,9 +544,13 @@ def main():
 
         print(f"詳細取得中: {program['program_title']}")
         try:
-            res_detail = requests.get(program['link'], timeout=20)
+            # より長いタイムアウトでページを取得
+            res_detail = requests.get(program['link'], timeout=30)
             res_detail.raise_for_status()
             soup_detail = BeautifulSoup(res_detail.text, 'html.parser')
+            
+            # ページの読み込み状況を確認
+            print(f"  📄 ページサイズ: {len(res_detail.text)}文字")
 
             title = clean_text(program['program_title'])
             
@@ -475,12 +569,30 @@ def main():
 
             # 出演者リンク抽出（堅牢化）
             performer_links = {}
-            talent_links = soup_detail.select("a[href*='/talents/']")
+            # 改良された出演者情報抽出関数を使用
+            performer_links = extract_performers_from_html(soup_detail)
             
-            for link_elem in talent_links:
-                talent_info = safe_extract_talent_info(link_elem)
-                if talent_info:
-                    performer_links[talent_info["name"]] = talent_info["link"]
+            # デバッグ情報: HTMLの構造確認
+            if not performer_links:
+                print(f"  ⚠️ 出演者情報が見つかりません。HTML構造を確認中...")
+                addition_section = soup_detail.find("ul", class_="addition")
+                talent_panel = soup_detail.find("ul", class_="talent_panel")
+                print(f"    - ul.addition: {'あり' if addition_section else 'なし'}")
+                print(f"    - ul.talent_panel: {'あり' if talent_panel else 'なし'}")
+                
+                # ページ全体のタレントリンク数を確認
+                all_talent_links = soup_detail.find_all("a", href=lambda x: x and "/talents/" in x)
+                print(f"    - ページ全体のタレントリンク: {len(all_talent_links)}個")
+                
+                # デバッグ用にHTMLを保存（最初の5件のみ）
+                if len(program_details_to_upsert) < 5:
+                    debug_filename = f"debug_{program['event_id']}.html"
+                    try:
+                        with open(debug_filename, 'w', encoding='utf-8') as f:
+                            f.write(res_detail.text)
+                        print(f"    - デバッグHTML保存: {debug_filename}")
+                    except Exception as e:
+                        print(f"    - デバッグHTML保存失敗: {e}")
 
             # タレント情報の処理
             talents_to_upsert = []
@@ -544,7 +656,13 @@ def main():
             # JSON用データ（必要なフィールドのみ含む、安全なコピー作成）
             json_data = {
                 **db_data,
-                "performers": talents_to_upsert if talents_to_upsert else [],
+                "performers": [
+                    {
+                        "talent_id": talent["talent_id"],
+                        "name": talent["name"],
+                        "link": talent["link"]
+                    } for talent in talents_to_upsert
+                ] if talents_to_upsert else [],
                 "performer_count": len(talents_to_upsert),
                 "created_at": datetime.now().isoformat()
             }
@@ -631,6 +749,11 @@ if __name__ == '__main__':
             f"  • 番組概要: {epg_count}件\n"
             f"  • 番組詳細: {detail_count}件\n"
             f"**📺 対象チャンネル**: 地上波7局 + BS7局\n"
+            f"**🔧 修正内容**:\n"
+            f"  • チャンネルマッピング問題解決\n"
+            f"  • JSON保存エラー解決\n"
+            f"  • 既存テーブル構造対応\n"
+            f"**🚀 ステータス**: 本格運用開始"
         )
         send_discord_notification(success_message)
         

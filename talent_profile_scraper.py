@@ -323,30 +323,26 @@ class TalentProfileScraperFixed:
         return mapping.get(genre)
     
     def _save_tags_to_db(self, tags: List[Dict]):
-        """タグをデータベースに保存（UPSERTを正しく使用する修正版）"""
+        """タグをデータベースに保存（新規実装）"""
         
         for tag_data in tags:
             try:
                 tag_name = tag_data['tag_name']
                 tag_category = tag_data['tag_category']
                 
-                # 1. タグマスターに登録（存在しない場合は挿入）
-                # on_conflictで重複をチェックし、存在すれば何もしない
-                supabase.table('talent_tags').upsert(
-                    {'tag_name': tag_name, 'tag_category': tag_category},
-                    on_conflict='tag_name'  # 'tag_name'列で重複を判断
-                ).execute()
-
-                # 2. upsert後にtag_idを改めて取得
-                tag_response = supabase.table('talent_tags').select('tag_id').eq('tag_name', tag_name).execute()
+                # タグマスターに登録（存在しない場合のみ）
+                existing_tag = supabase.table('talent_tags').select('tag_id').eq('tag_name', tag_name).execute()
                 
-                # タグが存在しないという稀なケースを考慮
-                if not tag_response.data:
-                    self.logger.warning(f"タグIDの取得に失敗: {tag_name}")
-                    continue
-                tag_id = tag_response.data[0]['tag_id']
+                if not existing_tag.data:
+                    new_tag = supabase.table('talent_tags').insert({
+                        'tag_name': tag_name,
+                        'tag_category': tag_category
+                    }).execute()
+                    tag_id = new_tag.data[0]['tag_id']
+                else:
+                    tag_id = existing_tag.data[0]['tag_id']
                 
-                # 3. タレントとタグの関連を保存
+                # タレント-タグ関連を保存
                 relation_data = {
                     'talent_id': tag_data['talent_id'],
                     'tag_id': tag_id,
@@ -354,16 +350,11 @@ class TalentProfileScraperFixed:
                     'extraction_method': tag_data['extraction_method']
                 }
                 
-                # ここが最も重要！複合キー(talent_id, tag_id)で重複を判断する
-                supabase.table('talent_tag_relations').upsert(
-                    relation_data,
-                    on_conflict='talent_id,tag_id' 
-                ).execute()
+                supabase.table('talent_tag_relations').upsert(relation_data).execute()
                 
             except Exception as e:
-                # この例外処理は、ネットワークエラーなど予期せぬ問題のために残しておく
-                self.logger.error(f"タグ保存中の予期せぬエラー: {tag_data} - {str(e)}")
-                
+                self.logger.error(f"タグ保存エラー: {tag_data} - {str(e)}")
+    
     def send_discord_notification(self):
         """Discord通知を送信"""
         
