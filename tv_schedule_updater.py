@@ -13,6 +13,8 @@ from supabase import create_client, Client
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
+# Storageバケットを環境変数で上書きできるように（デフォルトは従来通り）
+STORAGE_BUCKET = os.environ.get("STORAGE_BUCKET", "json-backups")
 
 # 【本格運用】全対象チャンネル（地上波7局 + BS7局）
 TARGET_CHANNELS = [
@@ -271,17 +273,18 @@ def safe_json_upload(storage_path, data_dict, max_retries=3):
     # 3. アップロード試行（リトライ付き）
     for attempt in range(max_retries):
         try:
-            supabase.storage.from_('json-backups').upload(
+            supabase.storage.from_(STORAGE_BUCKET).upload(
                 path=storage_path,
                 file=json_string.encode('utf-8'),
                 file_options={
-                    "content-type": "application/json;charset=utf-8", 
-                    "upsert": "true"
+                    "content-type": "application/json;charset=utf-8",
+                    # boolで指定し、ライブラリ差異による無視を防ぐ
+                    "upsert": True
                 }
             )
             return True
         except Exception as e:
-            print(f"⚠️ JSON保存試行 {attempt + 1}/{max_retries} 失敗 ({storage_path}): {e}")
+            print(f"⚠️ JSON保存試行 {attempt + 1}/{max_retries} 失敗 ({storage_path} @ {STORAGE_BUCKET}): {e}")
             if attempt < max_retries - 1:
                 time.sleep(2 ** attempt)  # 指数バックオフ
     
@@ -434,6 +437,7 @@ def main():
     print("🚀 【本格運用】番組表スクリプトを開始します。")
     print(f"📋 取得対象: 地上波7局 + BS7局 = 計{len(TARGET_CHANNELS)}局")
     print(f"📅 取得期間: {TARGET_DAYS}日間")
+    print(f"🗄️  JSON保存バケット: {STORAGE_BUCKET}")
 
     # システム確認
     appearances_table_name = check_existing_tables()
@@ -530,6 +534,7 @@ def main():
     print("\n--- 番組詳細情報の取得開始 ---")
     program_details_to_upsert = []
     appearances_to_upsert = []
+    inserted_talent_ids = set()
     talents_seen = {}
     json_upload_success = 0
     json_upload_errors = 0
@@ -624,6 +629,8 @@ def main():
             if talents_to_upsert:
                 try:
                     supabase.table('talents').upsert(talents_to_upsert, on_conflict='talent_id').execute()
+                    # FK整合性のため、成功したtalent_idを保持
+                    inserted_talent_ids.update([t["talent_id"] for t in talents_to_upsert])
                 except Exception as e:
                     print(f"⚠️ タレント登録エラー: {e}")
 
@@ -685,17 +692,28 @@ def main():
     if program_details_to_upsert:
         print(f"\n✅ {len(program_details_to_upsert)}件の詳細情報をDB登録します...")
         batch_size = 500
+        inserted_program_event_ids = set()
         for i in range(0, len(program_details_to_upsert), batch_size):
             batch = program_details_to_upsert[i:i + batch_size]
             try:
                 supabase.table('programs').upsert(batch, on_conflict='event_id').execute()
                 print(f"  -> 詳細バッチ {i//batch_size + 1}: {len(batch)}件登録完了")
+                inserted_program_event_ids.update([row["event_id"] for row in batch])
             except Exception as e:
                 print(f"  -> 詳細バッチ {i//batch_size + 1} 登録エラー: {e}")
 
     # --- 4. 出演情報登録 ---
     if appearances_to_upsert and appearances_table_name:
-        success, errors = safe_upsert_appearances(appearances_to_upsert, appearances_table_name)
+        # programs / talents で成功したIDに絞ってFKエラーを低減
+        filtered_appearances = [
+            a for a in appearances_to_upsert
+            if a.get("program_event_id") in inserted_program_event_ids
+            and a.get("talent_id") in inserted_talent_ids
+        ]
+        dropped = len(appearances_to_upsert) - len(filtered_appearances)
+        if dropped > 0:
+            print(f"🪶 FK整合のため出演レコードを {dropped} 件スキップ")
+        success, errors = safe_upsert_appearances(filtered_appearances, appearances_table_name)
         print(f"✅ 出演情報登録結果: 成功 {success}件, 失敗 {errors}件")
     elif not appearances_table_name:
         print("⚠️ 出演情報テーブルが特定できないため、出演情報の登録をスキップします。")
