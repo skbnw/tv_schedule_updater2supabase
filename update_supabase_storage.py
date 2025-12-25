@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-SupabaseストレージのJSONファイルを更新して出演者情報を追加するスクリプト
-07/19を中心に前後6日分（07/13〜07/25）を対象
+SupabaseストレージのJSONファイルを更新して出演者情報を追加するスクリプト v1.1
+- 処理済みファイル（既に出演者情報がある）をスキップ
+- 日付範囲を環境変数で動的に設定可能
+- バッチサイズを制限してタイムアウトを回避
 """
 
 import os
@@ -32,6 +34,12 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     exit(1)
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# 処理設定
+# 1回のバッチで処理する最大件数（タイムアウト回避のため制限）
+MAX_FILES = int(get_env("MAX_FILES", "500"))
+# 対象日数（デフォルトは過去7日間）
+TARGET_DAYS_BACK = int(get_env("TARGET_DAYS_BACK", "7"))
 
 def clean_text(text):
     """テキストのクリーニング"""
@@ -234,15 +242,18 @@ def main():
     """メイン処理"""
     print("🚀 Supabaseストレージの出演者情報更新を開始します")
     
-    # 07/19を中心に前後6日分の日付を生成
-    center_date = datetime(2025, 7, 19)
-    target_dates = []
+    # 対象日付を決定
+    target_dates_env = get_env("TARGET_DATES")
+    if target_dates_env:
+        # 環境変数で指定された日付を使用
+        target_dates = [d.strip() for d in target_dates_env.split(",")]
+        print(f"📅 対象日付（環境変数指定）: {', '.join(target_dates)}")
+    else:
+        # 過去N日間の日付を生成
+        today = datetime.now().date()
+        target_dates = [(today - timedelta(days=i)).strftime('%Y-%m-%d') for i in range(TARGET_DAYS_BACK)]
+        print(f"📅 対象期間: {target_dates[-1]} 〜 {target_dates[0]}")
     
-    for i in range(-6, 7):  # -6日から+6日
-        target_date = center_date + timedelta(days=i)
-        target_dates.append(target_date.strftime('%Y-%m-%d'))
-    
-    print(f"📅 対象期間: {target_dates[0]} 〜 {target_dates[-1]}")
     print(f"📋 対象日数: {len(target_dates)}日")
     
     # ストレージからファイル一覧を取得
@@ -255,11 +266,16 @@ def main():
     
     print(f"\n📋 更新対象: {len(storage_files)}ファイル")
     
+    # 最大処理件数を制限
+    if len(storage_files) > MAX_FILES:
+        print(f"⚠️ ファイル数が{MAX_FILES}件を超えているため、最初の{MAX_FILES}件のみ処理します")
+        storage_files = storage_files[:MAX_FILES]
+    
     updated_count = 0
     error_count = 0
     skipped_count = 0
     
-    for file_path in storage_files:
+    for idx, file_path in enumerate(storage_files):
         try:
             success, status = download_and_update_json(file_path)
             
@@ -272,6 +288,10 @@ def main():
             
             # サーバーに負荷をかけないよう少し待機
             time.sleep(random.uniform(2, 4))
+            
+            # 進捗表示
+            if (idx + 1) % 50 == 0:
+                print(f"📊 進捗: {idx + 1}/{len(storage_files)}件処理済み (更新: {updated_count}, スキップ: {skipped_count}, エラー: {error_count})")
             
         except Exception as e:
             print(f"❌ {file_path} の処理でエラー: {e}")

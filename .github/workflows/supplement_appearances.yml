@@ -4,10 +4,21 @@ on:
   schedule:
     - cron: '0 18 * * *'  # JST 3:00 = UTC 18:00
   workflow_dispatch:
+    inputs:
+      target_dates:
+        description: '処理対象日付（カンマ区切り、例: 2025-01-20,2025-01-21）'
+        required: false
+        type: string
+      target_days_back:
+        description: '過去何日分を処理するか（デフォルト: 7）'
+        required: false
+        type: string
+        default: '7'
 
 jobs:
   supplement:
     runs-on: ubuntu-latest
+    timeout-minutes: 300  # 5時間でタイムアウト（6時間の制限内）
 
     steps:
       - name: Checkout repository
@@ -26,6 +37,8 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          TARGET_DATES: ${{ inputs.target_dates }}
+          TARGET_DAYS_BACK: ${{ inputs.target_days_back || '7' }}
         run: |
           python supplement_appearances_from_json.py
 
@@ -33,5 +46,8 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          TARGET_DATES: ${{ inputs.target_dates }}
+          TARGET_DAYS_BACK: ${{ inputs.target_days_back || '7' }}
+          MAX_FILES: '500'  # 1回の実行で処理する最大ファイル数
         run: |
           python update_supabase_storage.py 
