@@ -27,7 +27,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 STORAGE_BUCKET = "json-backups"
 
 # 1回のバッチで処理する最大件数（タイムアウト回避のため削減）
-MAX_PROGRAMS = 5000
+MAX_PROGRAMS = int(get_env("MAX_PROGRAMS", "5000"))
 
 # 処理対象日付範囲（環境変数で指定可能、デフォルトは過去7日間）
 TARGET_DAYS_BACK = int(get_env("TARGET_DAYS_BACK", "7"))
