@@ -283,8 +283,8 @@ def safe_json_upload(storage_path, data_dict, max_retries=3):
                 file=json_string.encode('utf-8'),
                 file_options={
                     "content-type": "application/json;charset=utf-8",
-                    # boolで指定し、ライブラリ差異による無視を防ぐ
-                    "upsert": True
+                    # 文字列で指定しないとエラーになる環境（GitHub Actions等）があるため "true" と記述
+                    "upsert": "true"
                 }
             )
             return True
