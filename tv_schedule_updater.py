@@ -452,7 +452,7 @@ def main():
     # --- 1. EPG基本情報の取得 ---
     epg_data_to_upsert = []
     processed_event_ids = set()
-    target_dates = [(datetime.now() + timedelta(days=i)) for i in range(-1, TARGET_DAYS + 1)]
+    target_dates = [(datetime.now() + timedelta(days=i)) for i in range(-4, TARGET_DAYS + 1)]
 
     print("\n--- EPG基本情報の取得開始 ---")
     bs_channel_count = 0
