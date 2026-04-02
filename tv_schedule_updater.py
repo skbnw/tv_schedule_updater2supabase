@@ -16,6 +16,11 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 # Storageバケットを環境変数で上書きできるように（デフォルトは従来通り）
 STORAGE_BUCKET = os.environ.get("STORAGE_BUCKET", "json-backups")
 
+# 共通ヘッダー（ブラウザを装う）
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+}
+
 # 【本格運用】全対象チャンネル（地上波7局 + BS7局）
 TARGET_CHANNELS = [
     # 地上波（7局）
@@ -144,7 +149,7 @@ def send_discord_notification(message):
     
     print("Discordへの通知を試みます...")
     try:
-        response = requests.post(DISCORD_WEBHOOK_URL, json={"content": message}, timeout=15)
+        response = requests.post(DISCORD_WEBHOOK_URL, json={"content": message}, timeout=15, headers=HEADERS)
         response.raise_for_status()
         print("✅ Discordへの通知を正常に送信しました。")
     except requests.exceptions.RequestException as e:
@@ -462,7 +467,7 @@ def main():
 
             print(f"アクセス中: {url}")
             try:
-                res = requests.get(url, timeout=20)
+                res = requests.get(url, timeout=20, headers=HEADERS)
                 res.raise_for_status()
                 soup = BeautifulSoup(res.text, 'html.parser')
                 channel_tags = soup.find_all("li", class_="js_channel topmost")
@@ -550,7 +555,7 @@ def main():
         print(f"詳細取得中: {program['program_title']}")
         try:
             # より長いタイムアウトでページを取得
-            res_detail = requests.get(program['link'], timeout=30)
+            res_detail = requests.get(program['link'], timeout=30, headers=HEADERS)
             res_detail.raise_for_status()
             soup_detail = BeautifulSoup(res_detail.text, 'html.parser')
             
@@ -784,3 +789,5 @@ if __name__ == '__main__':
         )
         print(error_message)
         send_discord_notification(error_message)
+        import sys
+        sys.exit(1)
