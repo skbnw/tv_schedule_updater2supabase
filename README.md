@@ -145,13 +145,28 @@ DISCORD_WEBHOOK_URL: 通知を送りたいDiscordチャンネルのWebhook URL
 自動実行
 本プロジェクトは、以下のGitHub Actionsワークフローにより自動実行されます：
 
-- **main.yml**: メインの番組表取得（毎日午前4時 JST）
-- **supplement_appearances.yml**: 出演者情報の補完（毎日午前3時 JST）
-  - ローカルJSONファイルの出演者情報補完
-  - SupabaseストレージのJSONファイル更新
-- **talent_profile_scraper.yml**: タレントプロフィール取得
+- **TV Program Scraper** (main.yml):
+  - **目的**: 毎日AM4時に実行され、地上波・BS計14局の番組情報を取得してSupabase（DBおよびStorage）に保存するメインアクション。
+  - **内容**: `tv_schedule_updater.py` を実行。
+- **Supplement Appearances from JSON** (supplement_appearances.yml):
+  - **目的**: 毎日AM3時に実行され、ストレージに保存されたJSONバックアップから最新の出演者情報を抽出し、DBの出演者テーブルを補完する。
+  - **内容**: `supplement_appearances_from_json.py` を実行。
+- **Talent Profile Scraper** (talent_profile_scraper.yml):
+  - **目的**: 不定期または手動で実行され、DBに登録されたタレントのリンクから詳細なプロフィール情報をスクレイピングして `talent_profiles` テーブルを構築する。
+  - **内容**: `talent_profile_scraper.py` を実行。
 
-また、GitHubのActionsタブから手動で実行することも可能です。
+また、GitHubのActionsタブから手動で実行することも可能です（`workflow_dispatch` 対応）。
+
+## 障害・メンテナンス記録
+
+### 2026年3月30日：bangumi.orgの仕様変更による同期停止
+- **事象**: 番組データの取得が停止し、GitHub Actionsが正常終了（30秒程度）するがデータが更新されない状態となった。
+- **原因**: データソースである `bangumi.org` が、デフォルトのPython `requests` ライブラリの `User-Agent` を検知して `403 Forbidden` を返すように変更されたため。
+- **修正内容**: 
+  - 全リクエストにブラウザを装う `User-Agent` ヘッダーを追加。
+  - GitHub Actions上でデバッグしやすくするため、致命的エラー時に終了コード `1` を返すように修正。
+  - Supabase Storageへのアップロード時に `upsert` オプションが真偽値だとエラーになる環境（GitHub Actions等）に対応するため、文字列 `"true"` に修正。
+- **復旧対応**: 3月30日分からの不足データを手動実行（遡り設定）によりリカバリ済み。
 
 ローカルでのテスト実行
 ローカル環境でスクリプトをテスト実行する場合は、ターミナルで環境変数を設定した上で実行します。

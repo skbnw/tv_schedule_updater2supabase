@@ -11,6 +11,11 @@ import random
 from bs4 import BeautifulSoup
 from datetime import datetime
 
+# 共通ヘッダー（ブラウザを装う）
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+}
+
 def clean_text(text):
     """テキストのクリーニング"""
     if text is None:
@@ -117,7 +122,7 @@ def update_json_file(json_file_path):
         print(f"  🔗 URL: {url}")
         
         try:
-            res = requests.get(url, timeout=30)
+            res = requests.get(url, timeout=30, headers=HEADERS)
             res.raise_for_status()
             soup = BeautifulSoup(res.text, 'html.parser')
             

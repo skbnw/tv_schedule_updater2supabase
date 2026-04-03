@@ -15,6 +15,11 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from supabase import create_client, Client
 
+# 共通ヘッダー（ブラウザを装う）
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+}
+
 # 環境変数から設定を取得
 def get_env(key, default=None):
     v = os.environ.get(key)
@@ -189,7 +194,7 @@ def download_and_update_json(file_path):
             print(f"  🔗 試行: {url}")
             
             try:
-                res = requests.get(url, timeout=30)
+                res = requests.get(url, timeout=30, headers=HEADERS)
                 if res.status_code == 200:
                     soup = BeautifulSoup(res.text, 'html.parser')
                     

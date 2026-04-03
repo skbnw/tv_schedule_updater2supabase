@@ -8,6 +8,11 @@ from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 from supabase import create_client, Client
 
+# 共通ヘッダー（ブラウザを装う）
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/120.0.0.0"
+}
+
 
 # 連携サービスの設定
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -15,11 +20,6 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 # Storageバケットを環境変数で上書きできるように（デフォルトは従来通り）
 STORAGE_BUCKET = os.environ.get("STORAGE_BUCKET", "json-backups")
-
-# 共通ヘッダー（ブラウザを装う）
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-}
 
 # 【本格運用】全対象チャンネル（地上波7局 + BS7局）
 TARGET_CHANNELS = [
@@ -452,7 +452,7 @@ def main():
     # --- 1. EPG基本情報の取得 ---
     epg_data_to_upsert = []
     processed_event_ids = set()
-    target_dates = [(datetime.now() + timedelta(days=i)) for i in range(-4, TARGET_DAYS + 1)]
+    target_dates = [(datetime.now() + timedelta(days=i)) for i in range(-1, TARGET_DAYS + 1)]
 
     print("\n--- EPG基本情報の取得開始 ---")
     bs_channel_count = 0
@@ -467,7 +467,7 @@ def main():
 
             print(f"アクセス中: {url}")
             try:
-                res = requests.get(url, timeout=20, headers=HEADERS)
+                res = requests.get(url, timeout=30, headers=HEADERS)
                 res.raise_for_status()
                 soup = BeautifulSoup(res.text, 'html.parser')
                 channel_tags = soup.find_all("li", class_="js_channel topmost")
