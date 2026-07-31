@@ -15,6 +15,14 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/125.0.0.0 Safari/537.36"
+    )
+}
+
 # 【本格運用】全対象チャンネル（地上波7局 + BS7局）
 TARGET_CHANNELS = [
     # 地上波（7局）
@@ -406,7 +414,7 @@ def main(start_date=None, end_date=None):
 
             print(f"アクセス中: {url}")
             try:
-                res = requests.get(url, timeout=20)
+                res = requests.get(url, headers=HEADERS, timeout=20)
                 res.raise_for_status()
                 soup = BeautifulSoup(res.text, 'html.parser')
                 channel_tags = soup.find_all("li", class_="js_channel topmost")
@@ -492,7 +500,7 @@ def main(start_date=None, end_date=None):
 
         print(f"詳細取得中: {program['program_title']}")
         try:
-            res_detail = requests.get(program['link'], timeout=20)
+            res_detail = requests.get(program['link'], headers=HEADERS, timeout=20)
             res_detail.raise_for_status()
             soup_detail = BeautifulSoup(res_detail.text, 'html.parser')
 
