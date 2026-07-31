@@ -1,0 +1,21 @@
+# Fly.io デプロイ設定（アプリ名は `fly launch` 時に置き換わります）
+app = "tv-appearance-tracker"
+primary_region = "nrt"   # Tokyo
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"     # 無アクセス時は停止しコスト削減
+  auto_start_machines = true      # アクセスで自動起動
+  min_machines_running = 0
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+# 接続情報は secret で投入（リポジトリに書かない）:
+#   fly secrets set SUPABASE_URL="https://<ref>.supabase.co"
+#   fly secrets set SUPABASE_SECRET_KEY="sb_secret_..."

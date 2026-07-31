@@ -1,0 +1,95 @@
+{
+  "shugiin_head": [
+    {
+      "name": "逢沢一郎",
+      "reading": "あいさわいちろう",
+      "party": "自由民主党・無所属の会",
+      "chamber": "衆",
+      "district": "岡山1"
+    },
+    {
+      "name": "青山繁晴",
+      "reading": "あおやましげはる",
+      "party": "自由民主党・無所属の会",
+      "chamber": "衆",
+      "district": "兵庫8"
+    },
+    {
+      "name": "青山周平",
+      "reading": "あおやましゅうへい",
+      "party": "自由民主党・無所属の会",
+      "chamber": "衆",
+      "district": "愛知12"
+    },
+    {
+      "name": "赤澤亮正",
+      "reading": "あかざわりょうせい",
+      "party": "自由民主党・無所属の会",
+      "chamber": "衆",
+      "district": "鳥取2"
+    },
+    {
+      "name": "あかま二郎",
+      "reading": "あかまじろう",
+      "party": "自由民主党・無所属の会",
+      "chamber": "衆",
+      "district": "神奈川14"
+    },
+    {
+      "name": "秋葉賢也",
+      "reading": "あきばけんや",
+      "party": "自由民主党・無所属の会",
+      "chamber": "衆",
+      "district": "（比）東北"
+    }
+  ],
+  "sangiin_head": [
+    {
+      "name": "青木愛",
+      "reading": "あおきあい",
+      "party": "立憲",
+      "chamber": "参",
+      "district": "比例"
+    },
+    {
+      "name": "青木一彦",
+      "reading": "あおきかずひこ",
+      "party": "自民",
+      "chamber": "参",
+      "district": "鳥取・島根"
+    },
+    {
+      "name": "青島健太",
+      "reading": "あおしまけんた",
+      "party": "維新",
+      "chamber": "参",
+      "district": "比例"
+    },
+    {
+      "name": "赤松健",
+      "reading": "あかまつけん",
+      "party": "自民",
+      "chamber": "参",
+      "district": "比例"
+    },
+    {
+      "name": "秋野公造",
+      "reading": "あきのこうぞう",
+      "party": "公明",
+      "chamber": "参",
+      "district": "福岡"
+    },
+    {
+      "name": "浅尾慶一郎",
+      "reading": "あさおけいいちろう",
+      "party": "自民",
+      "chamber": "参",
+      "district": "神奈川"
+    }
+  ],
+  "short_names": [
+    "東徹",
+    "石平",
+    "階猛"
+  ]
+}

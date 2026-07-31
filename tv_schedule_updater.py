@@ -8,18 +8,11 @@ from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 from supabase import create_client, Client
 
-# 共通ヘッダー（ブラウザを装う）
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/120.0.0.0"
-}
-
 
 # 連携サービスの設定
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
-# Storageバケットを環境変数で上書きできるように（デフォルトは従来通り）
-STORAGE_BUCKET = os.environ.get("STORAGE_BUCKET", "json-backups")
 
 # 【本格運用】全対象チャンネル（地上波7局 + BS7局）
 TARGET_CHANNELS = [
@@ -149,7 +142,7 @@ def send_discord_notification(message):
     
     print("Discordへの通知を試みます...")
     try:
-        response = requests.post(DISCORD_WEBHOOK_URL, json={"content": message}, timeout=15, headers=HEADERS)
+        response = requests.post(DISCORD_WEBHOOK_URL, json={"content": message}, timeout=15)
         response.raise_for_status()
         print("✅ Discordへの通知を正常に送信しました。")
     except requests.exceptions.RequestException as e:
@@ -278,18 +271,17 @@ def safe_json_upload(storage_path, data_dict, max_retries=3):
     # 3. アップロード試行（リトライ付き）
     for attempt in range(max_retries):
         try:
-            supabase.storage.from_(STORAGE_BUCKET).upload(
+            supabase.storage.from_('json-backups').upload(
                 path=storage_path,
                 file=json_string.encode('utf-8'),
                 file_options={
-                    "content-type": "application/json;charset=utf-8",
-                    # 文字列で指定しないとエラーになる環境（GitHub Actions等）があるため "true" と記述
+                    "content-type": "application/json;charset=utf-8", 
                     "upsert": "true"
                 }
             )
             return True
         except Exception as e:
-            print(f"⚠️ JSON保存試行 {attempt + 1}/{max_retries} 失敗 ({storage_path} @ {STORAGE_BUCKET}): {e}")
+            print(f"⚠️ JSON保存試行 {attempt + 1}/{max_retries} 失敗 ({storage_path}): {e}")
             if attempt < max_retries - 1:
                 time.sleep(2 ** attempt)  # 指数バックオフ
     
@@ -330,96 +322,6 @@ def safe_extract_talent_info(link_element):
         print(f"⚠️ タレント情報抽出エラー: {e}")
         return None
 
-def extract_performers_from_html(soup_detail):
-    """HTMLから出演者情報を抽出（改良版）"""
-    performers = {}
-    
-    try:
-        # 方法1: ul.addition内の出演者情報を取得
-        addition_section = soup_detail.find("ul", class_="addition")
-        if addition_section:
-            performer_text = addition_section.get_text(strip=True)
-            print(f"  🔍 出演者テキスト検出: {performer_text[:100]}...")
-            
-            # 出演者リンクを抽出
-            performer_links = addition_section.find_all("a", href=lambda x: x and "/talents/" in x)
-            for link in performer_links:
-                talent_info = safe_extract_talent_info(link)
-                if talent_info:
-                    performers[talent_info["name"]] = talent_info["link"]
-        
-        # 方法2: ul.talent_panel内のタレント情報を取得
-        talent_panel = soup_detail.find("ul", class_="talent_panel")
-        if talent_panel:
-            talent_links = talent_panel.find_all("a", href=lambda x: x and "/talents/" in x)
-            for link in talent_links:
-                talent_info = safe_extract_talent_info(link)
-                if talent_info:
-                    performers[talent_info["name"]] = talent_info["link"]
-        
-        # 方法3: ページ全体からタレントリンクを取得（フォールバック）
-        if not performers:
-            all_talent_links = soup_detail.find_all("a", href=lambda x: x and "/talents/" in x)
-            for link in all_talent_links:
-                talent_info = safe_extract_talent_info(link)
-                if talent_info:
-                    performers[talent_info["name"]] = talent_info["link"]
-        
-        # 方法4: description_detailから出演者情報を抽出（補完）
-        description_detail = soup_detail.find('meta', {'name': 'description'})
-        if description_detail:
-            detail_text = description_detail.get('content', '')
-            if detail_text and '【出演】' in detail_text:
-                extracted_performers = extract_performers_from_description(detail_text)
-                for performer in extracted_performers:
-                    name = performer.get('name', '')
-                    if name and name not in performers:
-                        # talent_idがない場合は仮のIDを生成
-                        performers[name] = f"extracted_{hash(name) % 1000000}"
-        
-        print(f"  👥 出演者検出: {len(performers)}名")
-        if performers:
-            for name in list(performers.keys())[:3]:  # 最初の3名を表示
-                print(f"    - {name}")
-            if len(performers) > 3:
-                print(f"    ... 他{len(performers) - 3}名")
-        
-    except Exception as e:
-        print(f"⚠️ 出演者情報抽出エラー: {e}")
-    
-    return performers
-
-def extract_performers_from_description(description_text):
-    """description_detailから出演者情報を抽出"""
-    performers = []
-    
-    try:
-        # 【出演】セクションを抽出
-        if '【出演】' in description_text:
-            start = description_text.find('【出演】') + len('【出演】')
-            end = description_text.find('【', start)
-            if end == -1:
-                end = len(description_text)
-            performer_section = description_text[start:end].strip()
-            
-            # 役職・名前のパターンを抽出
-            import re
-            pattern = r'([^・]+)・([^、]+)'
-            matches = re.findall(pattern, performer_section)
-            
-            for role, name in matches:
-                performers.append({
-                    'name': name.strip(),
-                    'role': role.strip()
-                })
-            
-            print(f"  📝 description_detailから{len(performers)}名の出演者を抽出")
-    
-    except Exception as e:
-        print(f"⚠️ description_detailからの出演者抽出エラー: {e}")
-    
-    return performers
-
 def archive_old_db_records():
     print("\n--- 古いデータベースレコードのアーカイブ開始 ---")
     cutoff_date_str = (datetime.now() - timedelta(days=ROTATION_DAYS)).strftime('%Y-%m-%d')
@@ -438,11 +340,39 @@ def archive_old_db_records():
     except Exception as e:
         print(f"❌ DBレコードのアーカイブ中にエラー: {e}")
 
+
+def _count_table(table_name):
+    """指定テーブルの総レコード数を取得（失敗時はNoneを返す）"""
+    try:
+        # head=Trueで行データを転送せずカウントのみ取得
+        response = supabase.table(table_name).select("*", count="exact", head=True).execute()
+        return response.count or 0
+    except Exception as e:
+        print(f"⚠️ {table_name}の件数取得をスキップ: {e}")
+        return None
+
+
+def get_cumulative_counts():
+    """DB全体の累積件数を取得する。
+    古いレコードは *_archive テーブルへ退避されるため、
+    稼働テーブルとアーカイブテーブルの合算を累積値とする。
+    """
+    def _total(*table_names):
+        counts = [_count_table(name) for name in table_names]
+        valid = [c for c in counts if c is not None]
+        # 全て取得失敗ならNone（通知側で非表示にする）
+        return sum(valid) if valid else None
+
+    return {
+        "番組概要": _total("programs_epg", "programs_epg_archive"),
+        "番組詳細": _total("programs", "programs_archive"),
+        "タレント": _total("talents"),
+    }
+
 def main():
     print("🚀 【本格運用】番組表スクリプトを開始します。")
     print(f"📋 取得対象: 地上波7局 + BS7局 = 計{len(TARGET_CHANNELS)}局")
     print(f"📅 取得期間: {TARGET_DAYS}日間")
-    print(f"🗄️  JSON保存バケット: {STORAGE_BUCKET}")
 
     # システム確認
     appearances_table_name = check_existing_tables()
@@ -467,7 +397,7 @@ def main():
 
             print(f"アクセス中: {url}")
             try:
-                res = requests.get(url, timeout=30, headers=HEADERS)
+                res = requests.get(url, timeout=20)
                 res.raise_for_status()
                 soup = BeautifulSoup(res.text, 'html.parser')
                 channel_tags = soup.find_all("li", class_="js_channel topmost")
@@ -539,7 +469,6 @@ def main():
     print("\n--- 番組詳細情報の取得開始 ---")
     program_details_to_upsert = []
     appearances_to_upsert = []
-    inserted_talent_ids = set()
     talents_seen = {}
     json_upload_success = 0
     json_upload_errors = 0
@@ -554,13 +483,9 @@ def main():
 
         print(f"詳細取得中: {program['program_title']}")
         try:
-            # より長いタイムアウトでページを取得
-            res_detail = requests.get(program['link'], timeout=30, headers=HEADERS)
+            res_detail = requests.get(program['link'], timeout=20)
             res_detail.raise_for_status()
             soup_detail = BeautifulSoup(res_detail.text, 'html.parser')
-            
-            # ページの読み込み状況を確認
-            print(f"  📄 ページサイズ: {len(res_detail.text)}文字")
 
             title = clean_text(program['program_title'])
             
@@ -579,30 +504,12 @@ def main():
 
             # 出演者リンク抽出（堅牢化）
             performer_links = {}
-            # 改良された出演者情報抽出関数を使用
-            performer_links = extract_performers_from_html(soup_detail)
+            talent_links = soup_detail.select("a[href*='/talents/']")
             
-            # デバッグ情報: HTMLの構造確認
-            if not performer_links:
-                print(f"  ⚠️ 出演者情報が見つかりません。HTML構造を確認中...")
-                addition_section = soup_detail.find("ul", class_="addition")
-                talent_panel = soup_detail.find("ul", class_="talent_panel")
-                print(f"    - ul.addition: {'あり' if addition_section else 'なし'}")
-                print(f"    - ul.talent_panel: {'あり' if talent_panel else 'なし'}")
-                
-                # ページ全体のタレントリンク数を確認
-                all_talent_links = soup_detail.find_all("a", href=lambda x: x and "/talents/" in x)
-                print(f"    - ページ全体のタレントリンク: {len(all_talent_links)}個")
-                
-                # デバッグ用にHTMLを保存（最初の5件のみ）
-                if len(program_details_to_upsert) < 5:
-                    debug_filename = f"debug_{program['event_id']}.html"
-                    try:
-                        with open(debug_filename, 'w', encoding='utf-8') as f:
-                            f.write(res_detail.text)
-                        print(f"    - デバッグHTML保存: {debug_filename}")
-                    except Exception as e:
-                        print(f"    - デバッグHTML保存失敗: {e}")
+            for link_elem in talent_links:
+                talent_info = safe_extract_talent_info(link_elem)
+                if talent_info:
+                    performer_links[talent_info["name"]] = talent_info["link"]
 
             # タレント情報の処理
             talents_to_upsert = []
@@ -634,8 +541,6 @@ def main():
             if talents_to_upsert:
                 try:
                     supabase.table('talents').upsert(talents_to_upsert, on_conflict='talent_id').execute()
-                    # FK整合性のため、成功したtalent_idを保持
-                    inserted_talent_ids.update([t["talent_id"] for t in talents_to_upsert])
                 except Exception as e:
                     print(f"⚠️ タレント登録エラー: {e}")
 
@@ -668,13 +573,7 @@ def main():
             # JSON用データ（必要なフィールドのみ含む、安全なコピー作成）
             json_data = {
                 **db_data,
-                "performers": [
-                    {
-                        "talent_id": talent["talent_id"],
-                        "name": talent["name"],
-                        "link": talent["link"]
-                    } for talent in talents_to_upsert
-                ] if talents_to_upsert else [],
+                "performers": talents_to_upsert if talents_to_upsert else [],
                 "performer_count": len(talents_to_upsert),
                 "created_at": datetime.now().isoformat()
             }
@@ -697,28 +596,17 @@ def main():
     if program_details_to_upsert:
         print(f"\n✅ {len(program_details_to_upsert)}件の詳細情報をDB登録します...")
         batch_size = 500
-        inserted_program_event_ids = set()
         for i in range(0, len(program_details_to_upsert), batch_size):
             batch = program_details_to_upsert[i:i + batch_size]
             try:
                 supabase.table('programs').upsert(batch, on_conflict='event_id').execute()
                 print(f"  -> 詳細バッチ {i//batch_size + 1}: {len(batch)}件登録完了")
-                inserted_program_event_ids.update([row["event_id"] for row in batch])
             except Exception as e:
                 print(f"  -> 詳細バッチ {i//batch_size + 1} 登録エラー: {e}")
 
     # --- 4. 出演情報登録 ---
     if appearances_to_upsert and appearances_table_name:
-        # programs / talents で成功したIDに絞ってFKエラーを低減
-        filtered_appearances = [
-            a for a in appearances_to_upsert
-            if a.get("program_event_id") in inserted_program_event_ids
-            and a.get("talent_id") in inserted_talent_ids
-        ]
-        dropped = len(appearances_to_upsert) - len(filtered_appearances)
-        if dropped > 0:
-            print(f"🪶 FK整合のため出演レコードを {dropped} 件スキップ")
-        success, errors = safe_upsert_appearances(filtered_appearances, appearances_table_name)
+        success, errors = safe_upsert_appearances(appearances_to_upsert, appearances_table_name)
         print(f"✅ 出演情報登録結果: 成功 {success}件, 失敗 {errors}件")
     elif not appearances_table_name:
         print("⚠️ 出演情報テーブルが特定できないため、出演情報の登録をスキップします。")
@@ -763,31 +651,64 @@ if __name__ == '__main__':
     try:
         epg_count, detail_count = main()
         archive_old_db_records()
-        
-        # 成功通知メッセージ（詳細版）
+
+        # 政治家名簿のテレビ登場数を再計算（氏名×政治文脈で番組表照合）
+        politician_tv = None
+        try:
+            resp = supabase.rpc('refresh_politician_hits').execute()
+            data = resp.data
+            # スカラー返り（テレビ登場のある議員数）を頑健に取り出す
+            if isinstance(data, list):
+                data = data[0] if data else None
+            politician_tv = int(data) if data is not None else None
+            print(f"🏛️ 政治家テレビ登場を更新: {politician_tv}名")
+        except Exception as e:
+            print(f"⚠️ 政治家登場数の更新をスキップ: {e}")
+
+        # 累積データ（DB全体の総件数）を取得
+        cumulative = get_cumulative_counts()
+        run_date = datetime.now().strftime('%Y-%m-%d')
+
+        # 累積データ欄を組み立て（取得できた項目のみ表示）
+        cumulative_lines = ""
+        cumulative_rows = [
+            f"  • {label} 累計: {count:,}件"
+            for label, count in cumulative.items()
+            if count is not None
+        ]
+        if cumulative_rows:
+            cumulative_lines = (
+                f"**🗄️ 累積データ（DB全体）**:\n"
+                + "\n".join(cumulative_rows)
+                + "\n"
+            )
+
+        # 政治家テレビ登場の行（取得できたときのみ）
+        politician_line = (
+            f"**🏛️ 政治家テレビ登場**: {politician_tv}名（名簿711名中）\n"
+            if politician_tv is not None else ""
+        )
+
+        # 成功通知メッセージ（日次運用版）
         success_message = (
-            f"✅ 【本格運用】番組表スクリプトが正常に完了しました。\n\n"
-            f"**📅 処理期間**: {start_date} ～ {end_date}\n"
-            f"**📊 取得結果**:\n"
-            f"  • 番組概要: {epg_count}件\n"
-            f"  • 番組詳細: {detail_count}件\n"
+            f"✅ 番組表 日次更新が完了しました（{run_date}）。\n\n"
+            f"**📅 対象期間**: {start_date} ～ {end_date}\n"
+            f"**📊 今回の取得**:\n"
+            f"  • 番組概要: {epg_count:,}件\n"
+            f"  • 番組詳細: {detail_count:,}件\n"
             f"**📺 対象チャンネル**: 地上波7局 + BS7局\n"
-            f"**🔧 修正内容**:\n"
-            f"  • チャンネルマッピング問題解決\n"
-            f"  • JSON保存エラー解決\n"
-            f"  • 既存テーブル構造対応\n"
-            f"**🚀 ステータス**: 本格運用開始"
+            f"{cumulative_lines}"
+            f"{politician_line}"
+            f"**🚀 ステータス**: 日次更新 正常終了"
         )
         send_discord_notification(success_message)
         
     except Exception as e:
         error_message = (
-            f"🚨 【本格運用】番組表スクリプトでエラーが発生しました。\n\n"
+            f"🚨 番組表 日次更新でエラーが発生しました。\n\n"
             f"**エラー内容**:\n```\n{e}\n```\n\n"
             f"**対象期間**: {start_date} ～ {end_date}\n"
             f"**対象**: 地上波7局 + BS7局"
         )
         print(error_message)
         send_discord_notification(error_message)
-        import sys
-        sys.exit(1)
