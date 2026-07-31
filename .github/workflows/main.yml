@@ -1,10 +1,19 @@
 name: TV Program Scraper
 
 on:
-  workflow_dispatch: # 手動実行を許可
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: '取得開始日 (YYYY-MM-DD、空白=昨日)'
+        required: false
+        default: ''
+      end_date:
+        description: '取得終了日 (YYYY-MM-DD、空白=今日+2日)'
+        required: false
+        default: ''
   schedule:
     # 毎日AM4時(JST)に実行 (UTCで前日19時)
-    - cron: '0 19 * * *'  
+    - cron: '0 19 * * *'
 
 jobs:
   scrape:
@@ -25,9 +34,16 @@ jobs:
 
       - name: Run scraper script
         env:
-          TZ: 'Asia/Tokyo' 
+          TZ: 'Asia/Tokyo'
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          python tv_schedule_updater.py
+          ARGS=""
+          if [ -n "${{ github.event.inputs.start_date }}" ]; then
+            ARGS="$ARGS --start-date ${{ github.event.inputs.start_date }}"
+          fi
+          if [ -n "${{ github.event.inputs.end_date }}" ]; then
+            ARGS="$ARGS --end-date ${{ github.event.inputs.end_date }}"
+          fi
+          python tv_schedule_updater.py $ARGS

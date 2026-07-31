@@ -1,4 +1,5 @@
 import os
+import argparse
 import time
 import random
 import requests
@@ -369,10 +370,19 @@ def get_cumulative_counts():
         "タレント": _total("talents"),
     }
 
-def main():
+def main(start_date=None, end_date=None):
     print("🚀 【本格運用】番組表スクリプトを開始します。")
     print(f"📋 取得対象: 地上波7局 + BS7局 = 計{len(TARGET_CHANNELS)}局")
-    print(f"📅 取得期間: {TARGET_DAYS}日間")
+
+    # --- 取得期間の決定 ---
+    if start_date and end_date:
+        s = datetime.strptime(start_date, '%Y-%m-%d')
+        e = datetime.strptime(end_date, '%Y-%m-%d')
+        target_dates = [s + timedelta(days=i) for i in range((e - s).days + 1)]
+        print(f"📅 取得期間: {start_date} ～ {end_date}（{len(target_dates)}日間）")
+    else:
+        target_dates = [(datetime.now() + timedelta(days=i)) for i in range(-1, TARGET_DAYS + 1)]
+        print(f"📅 取得期間: {TARGET_DAYS}日間（デフォルト）")
 
     # システム確認
     appearances_table_name = check_existing_tables()
@@ -382,7 +392,6 @@ def main():
     # --- 1. EPG基本情報の取得 ---
     epg_data_to_upsert = []
     processed_event_ids = set()
-    target_dates = [(datetime.now() + timedelta(days=i)) for i in range(-1, TARGET_DAYS + 1)]
 
     print("\n--- EPG基本情報の取得開始 ---")
     bs_channel_count = 0
@@ -645,11 +654,16 @@ def main():
 
         
 if __name__ == '__main__':
-    start_date = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
-    end_date = (datetime.now() + timedelta(days=TARGET_DAYS)).strftime('%Y-%m-%d')
-    
+    parser = argparse.ArgumentParser(description='TV番組表スクレイパー')
+    parser.add_argument('--start-date', help='取得開始日 (YYYY-MM-DD)', default=None)
+    parser.add_argument('--end-date', help='取得終了日 (YYYY-MM-DD)', default=None)
+    args = parser.parse_args()
+
+    start_date = args.start_date or (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+    end_date = args.end_date or (datetime.now() + timedelta(days=TARGET_DAYS)).strftime('%Y-%m-%d')
+
     try:
-        epg_count, detail_count = main()
+        epg_count, detail_count = main(start_date, end_date)
         archive_old_db_records()
 
         # 政治家名簿のテレビ登場数を再計算（氏名×政治文脈で番組表照合）
