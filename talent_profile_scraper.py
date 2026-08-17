@@ -1,3 +1,7 @@
+# talent_profile_scraper.py
+# v1.1.0 (2026-08-17)
+# 追加: talent_tag_relations を on_conflict upsert し、既存タグの HTTP 409 を解消
+# 追加: 既存プロフィール ID をページング取得し、再処理による重複エラーを防止
 # 優先度高の修正を適用したバージョン
 
 import requests
@@ -38,22 +42,54 @@ class TalentProfileScraperFixed:
         logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger(__name__)
     
+    def _fetch_all_ids(self, table_name: str, column: str, page_size: int = 1000) -> set:
+        """PostgREST の既定 1000 件上限を越えて ID を全件取得する。"""
+        ids = set()
+        start = 0
+        while True:
+            res = (
+                supabase.table(table_name)
+                .select(column)
+                .range(start, start + page_size - 1)
+                .execute()
+            )
+            rows = res.data or []
+            ids.update(str(row[column]) for row in rows if row.get(column) is not None)
+            if len(rows) < page_size:
+                break
+            start += page_size
+        return ids
+
     def get_talents_to_process(self, offset: int = 0, limit: int = 50):
         """処理対象のタレントを取得（既存プロフィールを除外）"""
         
         try:
-            # 既存プロフィールがないタレントのみ取得
-            existing_profiles = supabase.table('talent_profiles').select('talent_id').execute()
-            existing_ids = {row['talent_id'] for row in existing_profiles.data}
+            existing_ids = self._fetch_all_ids('talent_profiles', 'talent_id')
+            collected = []
+            start = offset
+            page_size = 200
+            while len(collected) < limit:
+                res = (
+                    supabase.table('talents')
+                    .select('talent_id, name, link')
+                    .range(start, start + page_size - 1)
+                    .execute()
+                )
+                rows = res.data or []
+                if not rows:
+                    break
+                for talent in rows:
+                    talent_id = str(talent.get('talent_id', ''))
+                    if talent_id and talent_id not in existing_ids:
+                        collected.append(talent)
+                        if len(collected) >= limit:
+                            break
+                start += page_size
             
-            # 全タレントを取得
-            all_talents = supabase.table('talents').select('talent_id, name, link').limit(limit + len(existing_ids)).offset(offset).execute()
-            
-            # 既存プロフィールがないタレントのみフィルタ
-            talents_to_process = [t for t in all_talents.data if t['talent_id'] not in existing_ids][:limit]
-            
-            self.logger.info(f"処理対象: {len(talents_to_process)}件 (オフセット: {offset}, 既存除外: {len(existing_ids)}件)")
-            return talents_to_process
+            self.logger.info(
+                f"処理対象: {len(collected)}件 (オフセット: {offset}, 既存除外: {len(existing_ids)}件)"
+            )
+            return collected
             
         except Exception as e:
             self.logger.error(f"タレントデータ取得エラー: {str(e)}")
@@ -262,7 +298,9 @@ class TalentProfileScraperFixed:
         """プロフィールをデータベースに保存"""
         
         try:
-            result = supabase.table('talent_profiles').upsert(profile_data).execute()
+            supabase.table('talent_profiles').upsert(
+                profile_data, on_conflict='talent_id'
+            ).execute()
             
             # 修正: タグ生成と保存を追加
             tags = self._generate_tags(profile_data)
@@ -350,7 +388,11 @@ class TalentProfileScraperFixed:
                     'extraction_method': tag_data['extraction_method']
                 }
                 
-                supabase.table('talent_tag_relations').upsert(relation_data).execute()
+                supabase.table('talent_tag_relations').upsert(
+                    relation_data,
+                    on_conflict='talent_id,tag_id',
+                    ignore_duplicates=True,
+                ).execute()
                 
             except Exception as e:
                 self.logger.error(f"タグ保存エラー: {tag_data} - {str(e)}")

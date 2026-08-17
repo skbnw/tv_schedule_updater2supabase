@@ -1,3 +1,8 @@
+# tv_schedule_updater.py
+# v1.1.0 (2026-08-17)
+# 追加: 出演情報を INSERT ではなく upsert(on_conflict) で登録し、日次の重複 409 を解消
+# 追加: アーカイブをページングし、未退避レコードをまとめて消さないように修正
+# 追加: 存在しない appearances テーブルへのプローブをやめ、API 404 を抑制
 import os
 import argparse
 import time
@@ -164,31 +169,27 @@ def check_existing_tables():
     """既存テーブルの確認と構造把握"""
     print("\n--- システム確認 ---")
     
-    # 想定されるテーブル名のパターン
     required_tables = ['programs_epg', 'programs', 'talents']
-    appearances_candidates = ['program_talent_appearances', 'appearances']
+    appearances_table_name = 'program_talent_appearances'
     
     existing_tables = {}
-    appearances_table = None
     
-    # 必須テーブルの確認
     for table_name in required_tables:
         try:
-            result = supabase.table(table_name).select("*").limit(1).execute()
+            supabase.table(table_name).select("event_id" if table_name != "talents" else "talent_id").limit(1).execute()
             existing_tables[table_name] = "✅"
         except Exception as e:
             existing_tables[table_name] = "❌"
             print(f"⚠️ 必須テーブル {table_name} でエラー: {e}")
     
-    # 出演情報テーブルの特定
-    for table_name in appearances_candidates:
-        try:
-            result = supabase.table(table_name).select("*").limit(1).execute()
-            appearances_table = table_name
-            existing_tables[table_name] = "✅"
-            break
-        except Exception:
-            existing_tables[table_name] = "❌"
+    appearances_table = None
+    try:
+        supabase.table(appearances_table_name).select("program_event_id").limit(1).execute()
+        appearances_table = appearances_table_name
+        existing_tables[appearances_table_name] = "✅"
+    except Exception as e:
+        existing_tables[appearances_table_name] = "❌"
+        print(f"⚠️ 出演情報テーブル {appearances_table_name} でエラー: {e}")
     
     print(f"📋 テーブル状況: {existing_tables}")
     if appearances_table:
@@ -199,42 +200,55 @@ def check_existing_tables():
     return appearances_table
 
 def safe_upsert_appearances(appearances_data, table_name, batch_size=500):
-    """安全な出演情報登録（ON CONFLICT制約対応）"""
+    """出演情報を upsert（重複は DB 側で無視）し、409 を出さない。"""
     if not appearances_data or not table_name:
         print("📝 出演情報の登録をスキップします。")
         return 0, 0
-    
+
+    unique = {}
+    for rec in appearances_data:
+        event_id = rec.get("program_event_id")
+        talent_id = rec.get("talent_id")
+        if not event_id or not talent_id:
+            continue
+        unique[(str(event_id), str(talent_id))] = {
+            "program_event_id": str(event_id),
+            "talent_id": str(talent_id),
+        }
+    records = list(unique.values())
+    skipped = len(appearances_data) - len(records)
+    print(f"📝 出演情報登録開始: {len(records)}件（入力 {len(appearances_data)}件, 重複除外 {skipped}件）→ {table_name}")
+
     success_count = 0
     error_count = 0
-    
-    print(f"📝 出演情報登録開始: {len(appearances_data)}件 → {table_name}")
-    
-    for i in range(0, len(appearances_data), batch_size):
-        batch = appearances_data[i:i + batch_size]
+
+    for i in range(0, len(records), batch_size):
+        batch = records[i:i + batch_size]
+        batch_no = i // batch_size + 1
         try:
-            # 方法1: INSERT専用（新規データのみ）
-            result = supabase.table(table_name).insert(batch).execute()
+            query = supabase.table(table_name).upsert(
+                batch,
+                on_conflict="program_event_id,talent_id",
+                ignore_duplicates=True,
+            )
+            query.execute()
             success_count += len(batch)
-            print(f"  -> 出演バッチ {i//batch_size + 1}: {len(batch)}件登録完了")
-            
-        except Exception as e:
-            # 重複エラーの場合は個別処理
-            if "already exists" in str(e) or "duplicate key" in str(e):
-                individual_success = 0
-                for single_record in batch:
-                    try:
-                        supabase.table(table_name).insert([single_record]).execute()
-                        individual_success += 1
-                    except Exception:
-                        # 重複は正常（既存データ保護）
-                        individual_success += 1
-                
-                success_count += individual_success
-                print(f"  -> 出演バッチ {i//batch_size + 1}: {individual_success}件処理完了（重複スキップ含む）")
-            else:
+            print(f"  -> 出演バッチ {batch_no}: {len(batch)}件 upsert 完了")
+        except TypeError:
+            try:
+                supabase.table(table_name).upsert(
+                    batch,
+                    on_conflict="program_event_id,talent_id",
+                ).execute()
+                success_count += len(batch)
+                print(f"  -> 出演バッチ {batch_no}: {len(batch)}件 upsert 完了")
+            except Exception as e:
                 error_count += len(batch)
-                print(f"  -> 出演バッチ {i//batch_size + 1} 登録エラー: {e}")
-    
+                print(f"  -> 出演バッチ {batch_no} 登録エラー: {e}")
+        except Exception as e:
+            error_count += len(batch)
+            print(f"  -> 出演バッチ {batch_no} 登録エラー: {e}")
+
     return success_count, error_count
 
 def validate_json_data(data):
@@ -331,20 +345,43 @@ def safe_extract_talent_info(link_element):
         print(f"⚠️ タレント情報抽出エラー: {e}")
         return None
 
-def archive_old_db_records():
+def archive_old_db_records(page_size=500):
+    """古いレコードをアーカイブへ退避する。
+
+    PostgREST の既定上限（1000件）で取りこぼした行を date 条件の一括 DELETE
+    で消さないよう、取得した event_id だけをページ単位で削除する。
+    """
     print("\n--- 古いデータベースレコードのアーカイブ開始 ---")
     cutoff_date_str = (datetime.now() - timedelta(days=ROTATION_DAYS)).strftime('%Y-%m-%d')
     print(f"{cutoff_date_str} より前のデータをアーカイブします。")
     try:
         for table_name in ["programs_epg", "programs"]:
-            response = supabase.table(table_name).select("*").lt('broadcast_date', cutoff_date_str).execute()
-            if response.data:
-                print(f" -> {table_name}: {len(response.data)}件をアーカイブ中...")
+            archived = 0
+            while True:
+                response = (
+                    supabase.table(table_name)
+                    .select("*")
+                    .lt("broadcast_date", cutoff_date_str)
+                    .limit(page_size)
+                    .execute()
+                )
+                rows = response.data or []
+                if not rows:
+                    break
                 try:
-                    supabase.table(f"{table_name}_archive").upsert(response.data).execute()
-                    supabase.table(table_name).delete().lt('broadcast_date', cutoff_date_str).execute()
+                    supabase.table(f"{table_name}_archive").upsert(
+                        rows, on_conflict="event_id"
+                    ).execute()
+                    event_ids = [row["event_id"] for row in rows if row.get("event_id")]
+                    if event_ids:
+                        supabase.table(table_name).delete().in_("event_id", event_ids).execute()
+                    archived += len(rows)
                 except Exception as archive_error:
                     print(f"⚠️ {table_name}のアーカイブをスキップ: {archive_error}")
+                    break
+                if len(rows) < page_size:
+                    break
+            print(f" -> {table_name}: {archived}件をアーカイブしました")
         print("✅ 古いDBレコードのアーカイブ完了。")
     except Exception as e:
         print(f"❌ DBレコードのアーカイブ中にエラー: {e}")
