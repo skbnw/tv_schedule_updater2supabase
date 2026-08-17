@@ -74,6 +74,7 @@
 ### Phase 1 — 閲覧＋検索（実装中）
 - [x] pgroonga 検索基盤・統合ビュー（済）
 - [x] Streamlit アプリ（`webapp/app.py`）: 人物から探す／キーワード検索
+- [x] 公開検索サイト（`webapp/server.js` + `public/`）: 番組／出演者／議員。Fly.io デプロイ前提
 - [ ] Fly.io デプロイ（`webapp/` の Dockerfile / fly.toml）
 
 ### Phase 2 — ウォッチリスト＋出演予定通知

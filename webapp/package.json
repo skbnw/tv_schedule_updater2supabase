@@ -1,0 +1,18 @@
+{
+  "name": "tclip-search",
+  "version": "1.0.0",
+  "private": true,
+  "description": "T-Clip 公開検索（国会ネクサス姉妹アプリ）",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "express": "^4.21.0"
+  }
+}
