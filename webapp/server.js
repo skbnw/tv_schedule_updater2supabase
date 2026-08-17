@@ -1,7 +1,8 @@
 // T-Clip 公開検索 API
 // v1.0.0 (2026-08-17)
 // 追加: p330 録画検索の公開版。番組キーワード / 出演者 / 議員を Supabase RPC 経由で検索
-// 追加: secret キーはサーバのみ。ブラウザへは出さない
+// v1.0.1 (2026-08-17)
+// 追加: 議員の略歴（名簿＋talent_profiles）を /api/profile で返す
 const path = require("path");
 const fs = require("fs");
 const express = require("express");
@@ -58,7 +59,38 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
   realtime: { disabled: true },
 });
 
-const app = express();
+function parseCsvLine(line) {
+  return line.split(",").map((c) => c.trim());
+}
+
+function loadGazetteer() {
+  const candidates = [
+    path.join(__dirname, "data", "politicians_gazetteer.csv"),
+    path.join(__dirname, "..", "reference", "politicians_gazetteer.csv"),
+  ];
+  const map = new Map();
+  for (const file of candidates) {
+    if (!fs.existsSync(file)) continue;
+    const lines = fs.readFileSync(file, "utf8").split(/\r?\n/).filter(Boolean);
+    const header = parseCsvLine(lines.shift() || "");
+    const idx = Object.fromEntries(header.map((h, i) => [h, i]));
+    for (const line of lines) {
+      const cols = parseCsvLine(line);
+      const name = cols[idx.name];
+      if (!name) continue;
+      map.set(name, {
+        reading: cols[idx.reading] || "",
+        party: cols[idx.party] || "",
+        chamber: cols[idx.chamber] || "",
+        district: cols[idx.district] || "",
+      });
+    }
+    break;
+  }
+  return map;
+}
+
+const gazetteer = loadGazetteer();
 app.disable("x-powered-by");
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
@@ -325,6 +357,40 @@ app.get("/api/politicians/:name/programs", async (req, res) => {
     console.error("politician programs error:", err.message);
     res.status(err.status || 500).json({ error: "登場番組の取得に失敗しました" });
   }
+});
+
+app.get("/api/profile", async (req, res) => {
+  const name = String(req.query.name || "").trim();
+  const talentId = String(req.query.talent_id || "").trim();
+  if (!name && !talentId) {
+    res.status(400).json({ error: "name または talent_id が必要です" });
+    return;
+  }
+  const profile = { name, ...(gazetteer.get(name) || {}) };
+  try {
+    let tid = talentId;
+    if (!tid && name) {
+      const talents = await supabase
+        .from("talents")
+        .select("talent_id, name, link")
+        .eq("name", name)
+        .limit(1);
+      if (talents.data && talents.data[0]) tid = String(talents.data[0].talent_id);
+    }
+    if (tid) {
+      const rows = await supabase
+        .from("talent_profiles")
+        .select("full_name, reading, birth_date, birthplace, career_history, genres")
+        .eq("talent_id", tid)
+        .limit(1);
+      if (rows.data && rows.data[0]) {
+        Object.assign(profile, rows.data[0], { talent_id: tid });
+      }
+    }
+  } catch (err) {
+    console.error("profile error:", err.message);
+  }
+  res.json({ profile });
 });
 
 app.get(["/programs", "/talents", "/politicians"], (_req, res) => {

@@ -12,6 +12,7 @@ const channelSelect = document.getElementById("channel");
 const talentTag = document.getElementById("talentTag");
 const talentList = document.getElementById("talentList");
 const politicianList = document.getElementById("politicianList");
+const profileCard = document.getElementById("profileCard");
 
 const loadMoreWrap = document.getElementById("loadMoreWrap");
 const loadMoreBtn = document.getElementById("loadMoreBtn");
@@ -54,6 +55,30 @@ function setStatus(text) {
   statusEl.textContent = text || "";
 }
 
+function hideProfile() {
+  profileCard.classList.add("is-hidden");
+  profileCard.innerHTML = "";
+}
+
+function showProfile(p) {
+  const facts = [p.reading, p.chamber, p.party, p.district, p.birthplace, p.birth_date]
+    .map((x) => String(x || "").trim())
+    .filter(Boolean);
+  const bio = compactText(p.career_history || p.bio || "");
+  profileCard.innerHTML = `
+    <h3>${escapeHtml(p.name || "")}</h3>
+    <div class="facts">${escapeHtml(facts.join(" ／ "))}${p.tv_hits != null ? ` ／ テレビ登場 ${escapeHtml(p.tv_hits)}件` : ""}</div>
+    ${bio ? `<div class="bio">${escapeHtml(bio)}</div>` : ""}
+  `;
+  profileCard.classList.toggle("is-hidden", !p.name);
+}
+
+function collapsePeople(target) {
+  talentList.classList.remove("is-collapsed");
+  politicianList.classList.remove("is-collapsed");
+  if (target) target.classList.add("is-collapsed");
+}
+
 function setTitle(text) {
   if (!text) {
     resultTitle.classList.add("is-hidden");
@@ -80,21 +105,36 @@ function programParams() {
   return params;
 }
 
+function compactText(s) {
+  return String(s || "")
+    .replace(/\u3000/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{2,}/g, "\n")
+    .trim();
+}
+
 function programItem(r) {
   const li = document.createElement("li");
   li.className = "result";
   const archive = r.source === "archive" ? '<span class="badge">アーカイブ</span>' : "";
+  const genre = r.genre ? `<span class="badge">${escapeHtml(r.genre)}</span>` : "";
+  const body = compactText(r.description_detail || r.description || "");
+  const site = r.official_website
+    ? `<div class="links"><a href="${escapeHtml(r.official_website)}" target="_blank" rel="noopener">公式サイト</a></div>`
+    : "";
   li.innerHTML = `
-    <div class="meta">${escapeHtml(fmtWhen(r.start_time, r.broadcast_date))} ・ ${escapeHtml(r.channel || "")} ${archive}</div>
+    <div class="meta">
+      <span class="chev">▶</span>
+      <span>${escapeHtml(fmtWhen(r.start_time, r.broadcast_date))}</span>
+      <span>${escapeHtml(r.channel || "")}</span>
+      ${genre}${archive}
+    </div>
     <h3>${escapeHtml(r.program_title || "(無題)")}</h3>
-    <div class="snippet">${escapeHtml(r.snippet || r.description || "")}</div>
     <div class="detail">
-      <div><strong>ジャンル</strong> ${escapeHtml(r.genre || "—")}</div>
-      <p>${escapeHtml((r.description_detail || r.description || "（番組内容の登録なし）").trim())}</p>
-      ${r.official_website ? `<p><a href="${escapeHtml(r.official_website)}" target="_blank" rel="noopener">公式サイト</a></p>` : ""}
+      <p>${escapeHtml(body || "（番組内容の登録なし）")}</p>
+      ${site}
     </div>
   `;
-  li.addEventListener("click", () => li.classList.toggle("is-open"));
   return li;
 }
 
@@ -167,6 +207,7 @@ async function searchPrograms() {
   csvLink.href = `/api/search?${params.toString()}&format=csv`;
   setStatus("検索中…");
   setTitle("");
+  hideProfile();
   talentList.innerHTML = "";
   politicianList.innerHTML = "";
   stopPagedList();
@@ -193,6 +234,7 @@ function renderPeople(target, rows, onPick) {
     li.addEventListener("click", () => {
       target.querySelectorAll(".person").forEach((el) => el.classList.remove("is-selected"));
       li.classList.add("is-selected");
+      collapsePeople(target);
       onPick(r);
     });
     target.appendChild(li);
@@ -221,6 +263,8 @@ async function searchTalents() {
   const { results } = await res.json();
   setStatus(`${results.length} 人`);
   setTitle("");
+  hideProfile();
+  talentList.classList.remove("is-collapsed");
   renderPeople(talentList, results, loadAppearances);
 }
 
@@ -229,6 +273,13 @@ async function loadAppearances(person) {
   setTitle(`${person.name} の出演番組`);
   stopPagedList();
   resultsEl.innerHTML = "";
+  showProfile(person);
+  fetch(`/api/profile?name=${encodeURIComponent(person.name)}&talent_id=${encodeURIComponent(person.talent_id || "")}`)
+    .then((res) => (res.ok ? res.json() : null))
+    .then((extra) => {
+      if (extra && extra.profile) showProfile({ ...person, ...extra.profile });
+    })
+    .catch(() => {});
   const res = await fetch(`/api/talents/${encodeURIComponent(person.talent_id)}/appearances`);
   if (!res.ok) {
     setStatus("出演番組の取得に失敗しました");
@@ -259,6 +310,8 @@ async function loadPoliticians() {
   politicianCache = results;
   setStatus(`${results.length} 人（テレビ登場のある議員）`);
   setTitle("");
+  hideProfile();
+  politicianList.classList.remove("is-collapsed");
   renderPeople(politicianList, results, loadPoliticianPrograms);
 }
 
@@ -268,6 +321,15 @@ async function loadPoliticianPrograms(person) {
   if (appearanceOnly) params.set("appearance_only", "1");
   setStatus("登場番組を取得中…");
   setTitle(`${person.name} の登場番組`);
+  stopPagedList();
+  resultsEl.innerHTML = "";
+  showProfile(person);
+  fetch(`/api/profile?name=${encodeURIComponent(person.name)}`)
+    .then((res) => (res.ok ? res.json() : null))
+    .then((extra) => {
+      if (extra && extra.profile) showProfile({ ...person, ...extra.profile });
+    })
+    .catch(() => {});
   const res = await fetch(
     `/api/politicians/${encodeURIComponent(person.name)}/programs?${params.toString()}`
   );
@@ -276,8 +338,12 @@ async function loadPoliticianPrograms(person) {
     return;
   }
   const { results } = await res.json();
-  setStatus(`${results.length} 件`);
-  renderPrograms(results);
+  if (!results.length) {
+    setStatus("登場番組はありません");
+    return;
+  }
+  startPagedList(sortNewest(results));
+  resultTitle.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function switchTab(name) {
@@ -288,6 +354,7 @@ function switchTab(name) {
   });
   resultsEl.innerHTML = "";
   setTitle("");
+  hideProfile();
   stopPagedList();
   if (name === "programs") searchPrograms();
   if (name === "politicians" && politicianCache.length === 0) loadPoliticians();
@@ -316,6 +383,11 @@ document.querySelectorAll(".chip").forEach((btn) => {
   });
 });
 loadMoreBtn.addEventListener("click", appendPage);
+resultsEl.addEventListener("click", (e) => {
+  if (e.target.closest("a")) return;
+  const item = e.target.closest("li.result");
+  if (item) item.classList.toggle("is-open");
+});
 
 async function boot() {
   const [chRes, catRes] = await Promise.all([
