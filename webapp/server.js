@@ -3,6 +3,8 @@
 // 追加: p330 録画検索の公開版。番組キーワード / 出演者 / 議員を Supabase RPC 経由で検索
 // v1.0.1 (2026-08-17)
 // 追加: 議員の略歴（名簿＋talent_profiles）を /api/profile で返す
+// v1.0.2 (2026-08-17)
+// 修正: express アプリ初期化の欠落を戻す。HTML はキャッシュしない
 const path = require("path");
 const fs = require("fs");
 const express = require("express");
@@ -91,9 +93,18 @@ function loadGazetteer() {
 }
 
 const gazetteer = loadGazetteer();
+const app = express();
 app.disable("x-powered-by");
 app.use(express.json());
-app.use(express.static(path.join(__dirname, "public")));
+app.use(
+  express.static(path.join(__dirname, "public"), {
+    setHeaders(res, filePath) {
+      if (filePath.endsWith(".html") || filePath.endsWith(".webmanifest")) {
+        res.setHeader("Cache-Control", "no-store");
+      }
+    },
+  })
+);
 
 function parseLimit(raw, fallback, max) {
   const n = Number.parseInt(String(raw ?? ""), 10);
@@ -394,6 +405,7 @@ app.get("/api/profile", async (req, res) => {
 });
 
 app.get(["/programs", "/talents", "/politicians"], (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 

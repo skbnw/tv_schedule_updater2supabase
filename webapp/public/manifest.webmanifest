@@ -1,0 +1,7 @@
+{
+  "name": "テレビ番組検索β",
+  "short_name": "テレビ番組検索β",
+  "lang": "ja",
+  "start_url": "/",
+  "display": "browser"
+}
