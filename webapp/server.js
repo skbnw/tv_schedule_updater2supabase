@@ -5,6 +5,9 @@
 // 追加: 議員の略歴（名簿＋talent_profiles）を /api/profile で返す
 // v1.0.2 (2026-08-17)
 // 修正: express アプリ初期化の欠落を戻す。HTML はキャッシュしない
+// v1.0.3 (2026-08-17)
+// 修正: 番組検索の日付未指定時は今日〜7日後・放送順
+// 追加: 議員プロフィールに Wikipedia 要約を補う
 const path = require("path");
 const fs = require("fs");
 const express = require("express");
@@ -118,14 +121,56 @@ function todayJst() {
   return jst.toISOString().slice(0, 10);
 }
 
+function addDaysIso(iso, n) {
+  const [y, m, d] = String(iso).split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
+function nowStampJst() {
+  const jst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const p = (n) => String(n).padStart(2, "0");
+  return (
+    `${jst.getUTCFullYear()}${p(jst.getUTCMonth() + 1)}${p(jst.getUTCDate())}` +
+    `${p(jst.getUTCHours())}${p(jst.getUTCMinutes())}`
+  );
+}
+
+function channelLabel(row) {
+  const hit = CHANNELS.find((c) => c.code === row.channel_code);
+  if (hit) return hit.name;
+  return String(row.channel || "")
+    .replace(/[・･].*$/, "")
+    .replace(/\s*\(Ch\d+\)\s*/i, "")
+    .trim();
+}
+
+function programSortKey(row) {
+  return String(row.start_time || row.broadcast_date || "");
+}
+
+function sortPrograms(rows, { from, upcoming }) {
+  const today = todayJst();
+  const ahead = Boolean(upcoming || (from && from >= today));
+  return [...(rows || [])].sort((a, b) => {
+    const cmp = programSortKey(a).localeCompare(programSortKey(b));
+    return ahead ? cmp : -cmp;
+  });
+}
+
 function filterPrograms(rows, { channel, from, to, upcoming }) {
   const today = todayJst();
+  const nowStamp = nowStampJst();
   return (rows || []).filter((r) => {
     if (channel && r.channel_code !== channel && r.channel !== channel) return false;
     const d = String(r.broadcast_date || "");
     if (from && d < from) return false;
     if (to && d > to) return false;
-    if (upcoming && d && d < today) return false;
+    if (upcoming) {
+      const stamp = String(r.start_time || "");
+      if (stamp.length >= 12) return stamp >= nowStamp;
+      if (d && d < today) return false;
+    }
     return true;
   });
 }
@@ -151,7 +196,7 @@ function publicProgram(row, q) {
     broadcast_date: row.broadcast_date,
     start_time: row.start_time,
     end_time: row.end_time,
-    channel: row.channel,
+    channel: channelLabel(row),
     channel_code: row.channel_code,
     program_title: row.program_title,
     genre: row.genre,
@@ -175,12 +220,18 @@ async function rpc(name, params) {
 }
 
 async function searchPrograms({ q, channel, from, to, upcoming, politicianOnly, limit }) {
+  const today = todayJst();
+  if (!q && !from && !to) {
+    from = today;
+    to = addDaysIso(today, 7);
+  }
+  const ahead = Boolean(upcoming || (from && from >= today));
   let rows;
   if (q) {
     rows = await rpc("app_search", {
       p_query: q,
       p_politician_only: Boolean(politicianOnly),
-      p_limit: limit,
+      p_limit: Math.max(limit, 300),
     });
   } else {
     let query = supabase
@@ -188,7 +239,7 @@ async function searchPrograms({ q, channel, from, to, upcoming, politicianOnly, 
       .select(
         "event_id, broadcast_date, start_time, end_time, channel, channel_code, program_title, genre, source, official_website, description, description_detail"
       )
-      .order("broadcast_date", { ascending: false })
+      .order("start_time", { ascending: ahead })
       .limit(limit);
     if (from) query = query.gte("broadcast_date", from);
     if (to) query = query.lte("broadcast_date", to);
@@ -201,7 +252,7 @@ async function searchPrograms({ q, channel, from, to, upcoming, politicianOnly, 
         .select(
           "event_id, broadcast_date, start_time, end_time, channel, channel_code, program_title, genre, official_website, description, description_detail"
         )
-        .order("broadcast_date", { ascending: false })
+        .order("start_time", { ascending: ahead })
         .limit(limit);
       if (from) fallback = fallback.gte("broadcast_date", from);
       if (to) fallback = fallback.lte("broadcast_date", to);
@@ -213,9 +264,10 @@ async function searchPrograms({ q, channel, from, to, upcoming, politicianOnly, 
       rows = data || [];
     }
   }
-  return filterPrograms(rows, { channel, from, to, upcoming }).map((r) =>
-    publicProgram(r, q)
-  );
+  return sortPrograms(
+    filterPrograms(rows, { channel, from, to, upcoming }),
+    { from, upcoming }
+  ).slice(0, limit).map((r) => publicProgram(r, q));
 }
 
 function toCsv(rows) {
@@ -327,9 +379,10 @@ app.get("/api/talents/:id/appearances", async (req, res) => {
     const from = String(req.query.from || "").trim();
     const to = String(req.query.to || "").trim();
     const upcoming = boolParam(req.query.upcoming);
-    const results = filterPrograms(rows, { channel, from, to, upcoming }).map((r) =>
-      publicProgram(r, "")
-    );
+    const results = sortPrograms(
+      filterPrograms(rows, { channel, from, to, upcoming }),
+      { from, upcoming }
+    ).map((r) => publicProgram(r, ""));
     res.json({ results, count: results.length });
   } catch (err) {
     console.error("appearances error:", err.message);
@@ -360,15 +413,54 @@ app.get("/api/politicians/:name/programs", async (req, res) => {
       p_limit: limit,
       p_appearance_only: appearanceOnly,
     });
+    const mapped = rows.map((r) => publicProgram(r, req.params.name));
     res.json({
-      results: rows.map((r) => publicProgram(r, req.params.name)),
-      count: rows.length,
+      results: sortPrograms(mapped, {}),
+      count: mapped.length,
     });
   } catch (err) {
     console.error("politician programs error:", err.message);
     res.status(err.status || 500).json({ error: "登場番組の取得に失敗しました" });
   }
 });
+
+const wikiCache = new Map();
+
+async function wikiBio(name) {
+  const wikiUrl = `https://ja.wikipedia.org/wiki/${encodeURIComponent(name)}`;
+  const empty = { extract: "", url: wikiUrl };
+  if (!name) return empty;
+  if (wikiCache.has(name)) return wikiCache.get(name);
+  try {
+    const res = await fetch(
+      `https://ja.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(name)}`,
+      {
+        signal: AbortSignal.timeout(2500),
+        headers: {
+          "User-Agent": "tv-program-search/1.0 (https://tv-appearance-tracker.fly.dev/)",
+          Accept: "application/json",
+        },
+      }
+    );
+    if (!res.ok) {
+      wikiCache.set(name, empty);
+      return empty;
+    }
+    const data = await res.json();
+    if (!data || data.type === "disambiguation") {
+      wikiCache.set(name, empty);
+      return empty;
+    }
+    const out = {
+      extract: String(data.extract || "").trim(),
+      url: (data.content_urls && data.content_urls.desktop && data.content_urls.desktop.page) || wikiUrl,
+    };
+    wikiCache.set(name, out);
+    return out;
+  } catch {
+    return empty;
+  }
+}
 
 app.get("/api/profile", async (req, res) => {
   const name = String(req.query.name || "").trim();
@@ -397,6 +489,12 @@ app.get("/api/profile", async (req, res) => {
       if (rows.data && rows.data[0]) {
         Object.assign(profile, rows.data[0], { talent_id: tid });
       }
+    }
+    const wantWiki = gazetteer.has(name) || !profile.career_history;
+    if (wantWiki && name) {
+      const wiki = await wikiBio(name);
+      profile.wiki_url = wiki.url;
+      if (!profile.career_history && wiki.extract) profile.wiki_extract = wiki.extract;
     }
   } catch (err) {
     console.error("profile error:", err.message);

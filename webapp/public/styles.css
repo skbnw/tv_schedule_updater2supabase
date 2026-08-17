@@ -161,16 +161,31 @@ button[type=submit] {
   font-size: 1rem;
 }
 .profile .facts {
+  margin: 0.2rem 0 0.35rem;
+  display: grid;
+  grid-template-columns: 5.5em 1fr;
+  gap: 0.15rem 0.6rem;
   color: var(--muted);
   font-size: 0.82rem;
 }
+.profile .facts > div { display: contents; }
+.profile .facts dt { color: #8a8276; }
+.profile .facts dd { margin: 0; color: var(--ink); }
+.profile .hits { font-size: 0.82rem; color: var(--muted); }
 .profile .bio {
   margin: 0.45rem 0 0;
   padding-top: 0.45rem;
   border-top: 1px solid #eee8dc;
-  white-space: pre-line;
   line-height: 1.45;
 }
+.profile .bio h4 {
+  margin: 0 0 0.25rem;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+.profile .bio p { margin: 0; white-space: pre-line; }
+.profile .bio .empty { color: var(--muted); }
+.profile .wiki { margin-top: 0.4rem; font-size: 0.82rem; }
 
 .results, .people { list-style: none; padding: 0; margin: 0; }
 .people.is-collapsed .person:not(.is-selected) { display: none; }

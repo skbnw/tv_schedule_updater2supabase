@@ -36,6 +36,25 @@ function escapeHtml(s) {
   }[c]));
 }
 
+function todayJst() {
+  const now = new Date();
+  const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  return jst.toISOString().slice(0, 10);
+}
+
+function addDaysIso(iso, n) {
+  const [y, m, d] = String(iso).split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
+function fillDefaultDates() {
+  const fromEl = document.getElementById("from");
+  const toEl = document.getElementById("to");
+  if (!fromEl.value) fromEl.value = todayJst();
+  if (!toEl.value) toEl.value = addDaysIso(todayJst(), 7);
+}
+
 function fmtWhen(startTime, broadcastDate) {
   const raw = String(startTime || "");
   if (raw.length >= 12) {
@@ -61,14 +80,35 @@ function hideProfile() {
 }
 
 function showProfile(p) {
-  const facts = [p.reading, p.chamber, p.party, p.district, p.birthplace, p.birth_date]
-    .map((x) => String(x || "").trim())
-    .filter(Boolean);
-  const bio = compactText(p.career_history || p.bio || "");
+  const rows = [
+    ["読み", p.reading],
+    ["議院", p.chamber],
+    ["会派", p.party],
+    ["選挙区", p.district],
+    ["出身", p.birthplace],
+    ["生年月日", p.birth_date],
+    ["ジャンル", Array.isArray(p.genres) ? p.genres.join("、") : p.genres],
+  ].filter(([, v]) => String(v || "").trim());
+  const facts = rows
+    .map(([k, v]) => `<div><dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd></div>`)
+    .join("");
+  const hits = p.tv_hits != null ? `テレビ登場 ${escapeHtml(p.tv_hits)}件` : "";
+  const apps = p.appearances != null ? `出演 ${escapeHtml(p.appearances)}件` : "";
+  const bio = compactText(p.career_history || p.wiki_extract || p.bio || "");
+  const wiki = p.wiki_url
+    ? `<p class="wiki"><a href="${escapeHtml(p.wiki_url)}" target="_blank" rel="noopener">Wikipediaで略歴を見る</a></p>`
+    : (p.name
+      ? `<p class="wiki"><a href="https://ja.wikipedia.org/wiki/${encodeURIComponent(p.name)}" target="_blank" rel="noopener">Wikipediaで略歴を見る</a></p>`
+      : "");
   profileCard.innerHTML = `
     <h3>${escapeHtml(p.name || "")}</h3>
-    <div class="facts">${escapeHtml(facts.join(" ／ "))}${p.tv_hits != null ? ` ／ テレビ登場 ${escapeHtml(p.tv_hits)}件` : ""}</div>
-    ${bio ? `<div class="bio">${escapeHtml(bio)}</div>` : ""}
+    ${facts ? `<dl class="facts">${facts}</dl>` : ""}
+    ${hits || apps ? `<div class="hits">${hits || apps}</div>` : ""}
+    <div class="bio">
+      <h4>略歴</h4>
+      ${bio ? `<p>${escapeHtml(bio)}</p>` : "<p class=\"empty\">登録された略歴はありません。</p>"}
+      ${wiki}
+    </div>
   `;
   profileCard.classList.toggle("is-hidden", !p.name);
 }
@@ -218,8 +258,13 @@ async function searchPrograms() {
     return;
   }
   const { results } = await res.json();
-  setStatus(`${results.length} 件`);
-  renderPrograms(results);
+  if (!results.length) {
+    setStatus("該当する番組はありません");
+    resultsEl.innerHTML = "";
+    return;
+  }
+  setTitle(document.getElementById("q").value.trim() ? "検索結果" : "今日からの番組");
+  startPagedList(results);
 }
 
 function renderPeople(target, rows, onPick) {
@@ -356,7 +401,10 @@ function switchTab(name) {
   setTitle("");
   hideProfile();
   stopPagedList();
-  if (name === "programs") searchPrograms();
+  if (name === "programs") {
+    fillDefaultDates();
+    searchPrograms();
+  }
   if (name === "politicians" && politicianCache.length === 0) loadPoliticians();
 }
 
@@ -378,6 +426,7 @@ document.getElementById("politicianForm").addEventListener("submit", (e) => {
 });
 document.querySelectorAll(".chip").forEach((btn) => {
   btn.addEventListener("click", () => {
+    fillDefaultDates();
     document.getElementById("q").value = btn.dataset.q;
     searchPrograms();
   });
@@ -413,6 +462,7 @@ async function boot() {
     }
   }
   csvLink.href = "/api/search?format=csv&limit=100";
+  fillDefaultDates();
   searchPrograms();
 }
 

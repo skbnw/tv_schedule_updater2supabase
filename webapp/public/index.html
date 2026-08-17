@@ -9,7 +9,7 @@
   <meta property="og:title" content="テレビ番組検索β">
   <meta name="description" content="地上波・BSの番組表と出演者を横断検索。国会ネクサスの姉妹アプリ。">
   <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="stylesheet" href="/styles.css?v=5">
+  <link rel="stylesheet" href="/styles.css?v=6">
 </head>
 <body>
   <header class="site-header">
@@ -36,11 +36,11 @@
           <input type="search" id="q" placeholder="番組名・内容（空白区切りで AND）" autocomplete="off">
         </label>
         <label>
-          <span>開始日</span>
+          <span>この日から</span>
           <input type="date" id="from">
         </label>
         <label>
-          <span>終了日</span>
+          <span>この日まで</span>
           <input type="date" id="to">
         </label>
         <label>
@@ -101,6 +101,7 @@
           <button type="submit">名簿を絞る</button>
         </div>
       </form>
+      <p class="hints">議員を選ぶと、略歴と登場番組が出ます。</p>
       <ul id="politicianList" class="people"></ul>
     </section>
 
@@ -116,6 +117,6 @@
   <footer class="site-footer">
     <p><a href="https://kokkai-nexus-305630672228.asia-northeast1.run.app/" target="_blank" rel="noopener">国会ネクサス</a> の姉妹アプリです。データは bangumi.org 由来の番組表（地上波7局＋BS7局）と出演リンクです。</p>
   </footer>
-  <script src="/app.js?v=5"></script>
+  <script src="/app.js?v=6"></script>
 </body>
 </html>
