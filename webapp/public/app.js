@@ -23,8 +23,35 @@ let currentTab = "programs";
 let politicianCache = [];
 let pagedRows = [];
 let pagedShown = 0;
+let pagedUpcomingCount = 0;
 let loadObserver = null;
 let autoLoadReady = false;
+
+function nowStampJst() {
+  const jst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const p = (n) => String(n).padStart(2, "0");
+  return (
+    `${jst.getUTCFullYear()}${p(jst.getUTCMonth() + 1)}${p(jst.getUTCDate())}` +
+    `${p(jst.getUTCHours())}${p(jst.getUTCMinutes())}`
+  );
+}
+
+function sortFromNow(rows) {
+  const now = nowStampJst();
+  const today = todayJst();
+  const upcoming = [];
+  const past = [];
+  for (const r of rows || []) {
+    const stamp = String(r.start_time || "");
+    const future = stamp.length >= 12
+      ? stamp >= now
+      : String(r.broadcast_date || "") >= today;
+    (future ? upcoming : past).push(r);
+  }
+  upcoming.sort((a, b) => String(a.start_time || "").localeCompare(String(b.start_time || "")));
+  past.sort((a, b) => String(b.start_time || "").localeCompare(String(a.start_time || "")));
+  return { upcoming, past, rows: [...upcoming, ...past] };
+}
 
 function escapeHtml(s) {
   return String(s || "").replace(/[&<>"']/g, (c) => ({
@@ -80,6 +107,10 @@ function hideProfile() {
 }
 
 function showProfile(p) {
+  if (!p || !p.name) {
+    hideProfile();
+    return;
+  }
   const rows = [
     ["読み", p.reading],
     ["議院", p.chamber],
@@ -87,30 +118,27 @@ function showProfile(p) {
     ["選挙区", p.district],
     ["出身", p.birthplace],
     ["生年月日", p.birth_date],
-    ["ジャンル", Array.isArray(p.genres) ? p.genres.join("、") : p.genres],
   ].filter(([, v]) => String(v || "").trim());
   const facts = rows
-    .map(([k, v]) => `<div><dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd></div>`)
+    .map(([k, v]) => `<div><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(v)}</span></div>`)
     .join("");
   const hits = p.tv_hits != null ? `テレビ登場 ${escapeHtml(p.tv_hits)}件` : "";
   const apps = p.appearances != null ? `出演 ${escapeHtml(p.appearances)}件` : "";
-  const bio = compactText(p.career_history || p.wiki_extract || p.bio || "");
-  const wiki = p.wiki_url
-    ? `<p class="wiki"><a href="${escapeHtml(p.wiki_url)}" target="_blank" rel="noopener">Wikipediaで略歴を見る</a></p>`
-    : (p.name
-      ? `<p class="wiki"><a href="https://ja.wikipedia.org/wiki/${encodeURIComponent(p.name)}" target="_blank" rel="noopener">Wikipediaで略歴を見る</a></p>`
-      : "");
+  const wiki = p.wiki || {};
+  const bio = compactText(p.career_history || wiki.extract || p.wiki_extract || p.bio || "");
+  const wikiUrl = wiki.url || p.wiki_url || `https://ja.wikipedia.org/wiki/${encodeURIComponent(p.name)}`;
+  const pending = !bio && !p.wiki && !p.wiki_extract;
   profileCard.innerHTML = `
-    <h3>${escapeHtml(p.name || "")}</h3>
-    ${facts ? `<dl class="facts">${facts}</dl>` : ""}
+    <h3>${escapeHtml(p.name)}</h3>
+    ${facts ? `<div class="facts">${facts}</div>` : ""}
     ${hits || apps ? `<div class="hits">${hits || apps}</div>` : ""}
     <div class="bio">
       <h4>略歴</h4>
-      ${bio ? `<p>${escapeHtml(bio)}</p>` : "<p class=\"empty\">登録された略歴はありません。</p>"}
-      ${wiki}
+      ${bio ? `<p>${escapeHtml(bio)}</p>` : (pending ? "<p class=\"empty\">要約を取得しています…</p>" : "")}
+      <p class="wiki"><a href="${escapeHtml(wikiUrl)}" target="_blank" rel="noopener">Wikipediaで略歴を見る</a></p>
     </div>
   `;
-  profileCard.classList.toggle("is-hidden", !p.name);
+  profileCard.classList.remove("is-hidden");
 }
 
 function collapsePeople(target) {
@@ -194,17 +222,38 @@ function appendPage() {
     return;
   }
   const next = pagedRows.slice(pagedShown, pagedShown + PAGE_SIZE);
-  for (const row of next) resultsEl.appendChild(programItem(row));
+  for (let i = 0; i < next.length; i += 1) {
+    const idx = pagedShown + i;
+    if (pagedUpcomingCount > 0 && idx === pagedUpcomingCount) {
+      const sep = document.createElement("li");
+      sep.className = "group-label";
+      sep.textContent = "過去の登場";
+      resultsEl.appendChild(sep);
+    }
+    resultsEl.appendChild(programItem(next[i]));
+  }
   pagedShown += next.length;
   setStatus(`${pagedShown} / ${pagedRows.length} 件`);
   updateLoadMore();
 }
 
-function startPagedList(rows) {
+function startPagedList(rows, upcomingCount) {
   pagedRows = rows;
   pagedShown = 0;
+  pagedUpcomingCount = Number(upcomingCount) || 0;
   autoLoadReady = false;
   resultsEl.innerHTML = "";
+  if (pagedUpcomingCount === 0 && pagedRows.length) {
+    const sep = document.createElement("li");
+    sep.className = "group-label";
+    sep.textContent = "今後の放送はありません（過去の登場）";
+    resultsEl.appendChild(sep);
+  } else if (pagedUpcomingCount > 0 && pagedUpcomingCount < pagedRows.length) {
+    const sep = document.createElement("li");
+    sep.className = "group-label";
+    sep.textContent = `今後の放送（${pagedUpcomingCount}件）`;
+    resultsEl.appendChild(sep);
+  }
   appendPage();
   if (loadObserver) loadObserver.disconnect();
   if (pagedShown < pagedRows.length) {
@@ -263,8 +312,9 @@ async function searchPrograms() {
     resultsEl.innerHTML = "";
     return;
   }
-  setTitle(document.getElementById("q").value.trim() ? "検索結果" : "今日からの番組");
-  startPagedList(results);
+  setTitle(document.getElementById("q").value.trim() ? "検索結果" : "これから放送の番組");
+  const parts = sortFromNow(results);
+  startPagedList(parts.rows, parts.upcoming.length);
 }
 
 function renderPeople(target, rows, onPick) {
@@ -313,30 +363,40 @@ async function searchTalents() {
   renderPeople(talentList, results, loadAppearances);
 }
 
+async function loadPersonProfile(person) {
+  showProfile(person);
+  profileCard.scrollIntoView({ behavior: "smooth", block: "start" });
+  const params = new URLSearchParams();
+  if (person.name) params.set("name", person.name);
+  if (person.talent_id) params.set("talent_id", person.talent_id);
+  try {
+    const res = await fetch(`/api/profile?${params.toString()}`);
+    if (!res.ok) return;
+    const extra = await res.json();
+    if (extra && extra.profile) showProfile({ ...person, ...extra.profile });
+  } catch (_) {
+    /* 名簿だけでもカードは出す */
+  }
+}
+
 async function loadAppearances(person) {
   setStatus("出演番組を取得中…");
   setTitle(`${person.name} の出演番組`);
   stopPagedList();
   resultsEl.innerHTML = "";
-  showProfile(person);
-  fetch(`/api/profile?name=${encodeURIComponent(person.name)}&talent_id=${encodeURIComponent(person.talent_id || "")}`)
-    .then((res) => (res.ok ? res.json() : null))
-    .then((extra) => {
-      if (extra && extra.profile) showProfile({ ...person, ...extra.profile });
-    })
-    .catch(() => {});
+  loadPersonProfile(person);
   const res = await fetch(`/api/talents/${encodeURIComponent(person.talent_id)}/appearances`);
   if (!res.ok) {
     setStatus("出演番組の取得に失敗しました");
     return;
   }
-  const { results } = await res.json();
+  const { results, upcoming_count: upcomingCount } = await res.json();
   if (!results.length) {
     setStatus("出演番組はありません");
     return;
   }
-  startPagedList(sortNewest(results));
-  resultTitle.scrollIntoView({ behavior: "smooth", block: "start" });
+  const parts = sortFromNow(results);
+  startPagedList(parts.rows, upcomingCount != null ? upcomingCount : parts.upcoming.length);
 }
 
 async function loadPoliticians() {
@@ -368,13 +428,7 @@ async function loadPoliticianPrograms(person) {
   setTitle(`${person.name} の登場番組`);
   stopPagedList();
   resultsEl.innerHTML = "";
-  showProfile(person);
-  fetch(`/api/profile?name=${encodeURIComponent(person.name)}`)
-    .then((res) => (res.ok ? res.json() : null))
-    .then((extra) => {
-      if (extra && extra.profile) showProfile({ ...person, ...extra.profile });
-    })
-    .catch(() => {});
+  loadPersonProfile(person);
   const res = await fetch(
     `/api/politicians/${encodeURIComponent(person.name)}/programs?${params.toString()}`
   );
@@ -382,13 +436,13 @@ async function loadPoliticianPrograms(person) {
     setStatus("登場番組の取得に失敗しました");
     return;
   }
-  const { results } = await res.json();
+  const { results, upcoming_count: upcomingCount } = await res.json();
   if (!results.length) {
     setStatus("登場番組はありません");
     return;
   }
-  startPagedList(sortNewest(results));
-  resultTitle.scrollIntoView({ behavior: "smooth", block: "start" });
+  const parts = sortFromNow(results);
+  startPagedList(parts.rows, upcomingCount != null ? upcomingCount : parts.upcoming.length);
 }
 
 function switchTab(name) {
@@ -434,6 +488,7 @@ document.querySelectorAll(".chip").forEach((btn) => {
 loadMoreBtn.addEventListener("click", appendPage);
 resultsEl.addEventListener("click", (e) => {
   if (e.target.closest("a")) return;
+  if (e.target.closest(".group-label")) return;
   const item = e.target.closest("li.result");
   if (item) item.classList.toggle("is-open");
 });

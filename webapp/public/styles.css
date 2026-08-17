@@ -162,16 +162,16 @@ button[type=submit] {
 }
 .profile .facts {
   margin: 0.2rem 0 0.35rem;
-  display: grid;
-  grid-template-columns: 5.5em 1fr;
-  gap: 0.15rem 0.6rem;
-  color: var(--muted);
   font-size: 0.82rem;
 }
-.profile .facts > div { display: contents; }
-.profile .facts dt { color: #8a8276; }
-.profile .facts dd { margin: 0; color: var(--ink); }
-.profile .hits { font-size: 0.82rem; color: var(--muted); }
+.profile .facts > div {
+  display: flex;
+  gap: 0.7rem;
+  padding: 0.08rem 0;
+}
+.profile .facts .k { color: #8a8276; min-width: 5em; flex: 0 0 5em; }
+.profile .facts .v { color: var(--ink); }
+.profile .hits { font-size: 0.82rem; color: var(--muted); margin-bottom: 0.2rem; }
 .profile .bio {
   margin: 0.45rem 0 0;
   padding-top: 0.45rem;
@@ -185,7 +185,15 @@ button[type=submit] {
 }
 .profile .bio p { margin: 0; white-space: pre-line; }
 .profile .bio .empty { color: var(--muted); }
-.profile .wiki { margin-top: 0.4rem; font-size: 0.82rem; }
+.profile .wiki { margin-top: 0.4rem; font-size: 0.82rem; white-space: normal; }
+.group-label {
+  list-style: none;
+  margin: 0.6rem 0 0.35rem;
+  padding: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 650;
+}
 
 .results, .people { list-style: none; padding: 0; margin: 0; }
 .people.is-collapsed .person:not(.is-selected) { display: none; }

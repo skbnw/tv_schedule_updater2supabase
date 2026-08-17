@@ -8,6 +8,8 @@
 // v1.0.3 (2026-08-17)
 // 修正: 番組検索の日付未指定時は今日〜7日後・放送順
 // 追加: 議員プロフィールに Wikipedia 要約を補う
+// v1.0.4 (2026-08-17)
+// 修正: 一覧は現時刻以降を優先。Wikipedia 検索結果を略歴カードに表示
 const path = require("path");
 const fs = require("fs");
 const express = require("express");
@@ -149,13 +151,21 @@ function programSortKey(row) {
   return String(row.start_time || row.broadcast_date || "");
 }
 
-function sortPrograms(rows, { from, upcoming }) {
+function partitionByNow(rows) {
+  const now = nowStampJst();
   const today = todayJst();
-  const ahead = Boolean(upcoming || (from && from >= today));
-  return [...(rows || [])].sort((a, b) => {
-    const cmp = programSortKey(a).localeCompare(programSortKey(b));
-    return ahead ? cmp : -cmp;
-  });
+  const upcoming = [];
+  const past = [];
+  for (const r of rows || []) {
+    const stamp = String(r.start_time || "");
+    const future = stamp.length >= 12
+      ? stamp >= now
+      : String(r.broadcast_date || "") >= today;
+    (future ? upcoming : past).push(r);
+  }
+  upcoming.sort((a, b) => programSortKey(a).localeCompare(programSortKey(b)));
+  past.sort((a, b) => programSortKey(b).localeCompare(programSortKey(a)));
+  return { upcoming, past };
 }
 
 function filterPrograms(rows, { channel, from, to, upcoming }) {
@@ -225,7 +235,6 @@ async function searchPrograms({ q, channel, from, to, upcoming, politicianOnly, 
     from = today;
     to = addDaysIso(today, 7);
   }
-  const ahead = Boolean(upcoming || (from && from >= today));
   let rows;
   if (q) {
     rows = await rpc("app_search", {
@@ -234,14 +243,19 @@ async function searchPrograms({ q, channel, from, to, upcoming, politicianOnly, 
       p_limit: Math.max(limit, 300),
     });
   } else {
+    const lookingAhead = Boolean(upcoming || !from || from >= today);
     let query = supabase
       .from("v_program_search")
       .select(
         "event_id, broadcast_date, start_time, end_time, channel, channel_code, program_title, genre, source, official_website, description, description_detail"
       )
-      .order("start_time", { ascending: ahead })
+      .order("start_time", { ascending: lookingAhead })
       .limit(limit);
-    if (from) query = query.gte("broadcast_date", from);
+    if (lookingAhead) {
+      query = query.gte("start_time", upcoming || !from ? nowStampJst() : `${from.replace(/-/g, "")}0000`);
+    } else if (from) {
+      query = query.gte("broadcast_date", from);
+    }
     if (to) query = query.lte("broadcast_date", to);
     if (channel) query = query.eq("channel_code", channel);
     const { data, error } = await query;
@@ -252,9 +266,13 @@ async function searchPrograms({ q, channel, from, to, upcoming, politicianOnly, 
         .select(
           "event_id, broadcast_date, start_time, end_time, channel, channel_code, program_title, genre, official_website, description, description_detail"
         )
-        .order("start_time", { ascending: ahead })
+        .order("start_time", { ascending: lookingAhead })
         .limit(limit);
-      if (from) fallback = fallback.gte("broadcast_date", from);
+      if (lookingAhead) {
+        fallback = fallback.gte("start_time", upcoming || !from ? nowStampJst() : `${from.replace(/-/g, "")}0000`);
+      } else if (from) {
+        fallback = fallback.gte("broadcast_date", from);
+      }
       if (to) fallback = fallback.lte("broadcast_date", to);
       if (channel) fallback = fallback.eq("channel_code", channel);
       const fb = await fallback;
@@ -264,10 +282,10 @@ async function searchPrograms({ q, channel, from, to, upcoming, politicianOnly, 
       rows = data || [];
     }
   }
-  return sortPrograms(
-    filterPrograms(rows, { channel, from, to, upcoming }),
-    { from, upcoming }
-  ).slice(0, limit).map((r) => publicProgram(r, q));
+  const filtered = filterPrograms(rows, { channel, from, to, upcoming });
+  const parts = partitionByNow(filtered);
+  const ordered = upcoming ? parts.upcoming : [...parts.upcoming, ...parts.past];
+  return ordered.slice(0, limit).map((r) => publicProgram(r, q));
 }
 
 function toCsv(rows) {
@@ -379,11 +397,17 @@ app.get("/api/talents/:id/appearances", async (req, res) => {
     const from = String(req.query.from || "").trim();
     const to = String(req.query.to || "").trim();
     const upcoming = boolParam(req.query.upcoming);
-    const results = sortPrograms(
-      filterPrograms(rows, { channel, from, to, upcoming }),
-      { from, upcoming }
-    ).map((r) => publicProgram(r, ""));
-    res.json({ results, count: results.length });
+    const mapped = filterPrograms(rows, { channel, from, to, upcoming }).map((r) =>
+      publicProgram(r, "")
+    );
+    const parts = partitionByNow(mapped);
+    const results = upcoming ? parts.upcoming : [...parts.upcoming, ...parts.past];
+    res.json({
+      results,
+      count: results.length,
+      upcoming_count: parts.upcoming.length,
+      past_count: parts.past.length,
+    });
   } catch (err) {
     console.error("appearances error:", err.message);
     res.status(err.status || 500).json({ error: "出演番組の取得に失敗しました" });
@@ -414,9 +438,12 @@ app.get("/api/politicians/:name/programs", async (req, res) => {
       p_appearance_only: appearanceOnly,
     });
     const mapped = rows.map((r) => publicProgram(r, req.params.name));
+    const parts = partitionByNow(mapped);
     res.json({
-      results: sortPrograms(mapped, {}),
+      results: [...parts.upcoming, ...parts.past],
       count: mapped.length,
+      upcoming_count: parts.upcoming.length,
+      past_count: parts.past.length,
     });
   } catch (err) {
     console.error("politician programs error:", err.message);
@@ -425,42 +452,87 @@ app.get("/api/politicians/:name/programs", async (req, res) => {
 });
 
 const wikiCache = new Map();
+const WIKI_UA = {
+  "User-Agent": "tv-program-search/1.0 (https://tv-appearance-tracker.fly.dev/)",
+  Accept: "application/json",
+};
 
-async function wikiBio(name) {
-  const wikiUrl = `https://ja.wikipedia.org/wiki/${encodeURIComponent(name)}`;
-  const empty = { extract: "", url: wikiUrl };
+function stripWikiHtml(s) {
+  return String(s || "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function wikiSearch(name) {
+  const empty = { title: name, extract: "", url: `https://ja.wikipedia.org/wiki/${encodeURIComponent(name)}`, thumbnail: "", hits: [] };
   if (!name) return empty;
   if (wikiCache.has(name)) return wikiCache.get(name);
   try {
-    const res = await fetch(
-      `https://ja.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(name)}`,
-      {
-        signal: AbortSignal.timeout(2500),
-        headers: {
-          "User-Agent": "tv-program-search/1.0 (https://tv-appearance-tracker.fly.dev/)",
-          Accept: "application/json",
-        },
-      }
-    );
-    if (!res.ok) {
-      wikiCache.set(name, empty);
-      return empty;
-    }
-    const data = await res.json();
-    if (!data || data.type === "disambiguation") {
-      wikiCache.set(name, empty);
-      return empty;
-    }
+    const signal = AbortSignal.timeout(4000);
+    const searchUrl = new URL("https://ja.wikipedia.org/w/api.php");
+    searchUrl.search = new URLSearchParams({
+      action: "query",
+      format: "json",
+      utf8: "1",
+      list: "search",
+      srsearch: name,
+      srlimit: "5",
+      srprop: "snippet",
+    }).toString();
+    const searchRes = await fetch(searchUrl, { signal, headers: WIKI_UA });
+    const searchJson = searchRes.ok ? await searchRes.json() : {};
+    const hits = ((searchJson.query && searchJson.query.search) || []).map((h) => ({
+      title: h.title,
+      snippet: stripWikiHtml(h.snippet),
+      url: `https://ja.wikipedia.org/wiki/${encodeURIComponent(String(h.title).replace(/ /g, "_"))}`,
+    }));
+    const topTitle = (hits[0] && hits[0].title) || name;
+    const pageUrl = new URL("https://ja.wikipedia.org/w/api.php");
+    pageUrl.search = new URLSearchParams({
+      action: "query",
+      format: "json",
+      utf8: "1",
+      redirects: "1",
+      prop: "extracts|info|pageimages",
+      exintro: "1",
+      explaintext: "1",
+      inprop: "url",
+      pithumbsize: "160",
+      titles: topTitle,
+    }).toString();
+    const pageRes = await fetch(pageUrl, { signal, headers: WIKI_UA });
+    const pageJson = pageRes.ok ? await pageRes.json() : {};
+    const pages = (pageJson.query && pageJson.query.pages) || {};
+    const page = Object.values(pages).find((p) => p && !p.missing) || {};
     const out = {
-      extract: String(data.extract || "").trim(),
-      url: (data.content_urls && data.content_urls.desktop && data.content_urls.desktop.page) || wikiUrl,
+      title: page.title || topTitle,
+      extract: String(page.extract || "").trim(),
+      url: page.fullurl || empty.url,
+      thumbnail: (page.thumbnail && page.thumbnail.source) || "",
+      hits,
     };
-    wikiCache.set(name, out);
+    if (out.extract || out.hits.length) wikiCache.set(name, out);
     return out;
-  } catch {
+  } catch (err) {
+    console.error("wiki error:", err.message);
     return empty;
   }
 }
+
+app.get("/api/wiki", async (req, res) => {
+  const q = String(req.query.q || "").trim();
+  if (!q) {
+    res.status(400).json({ error: "q が必要です" });
+    return;
+  }
+  res.json({ wiki: await wikiSearch(q) });
+});
 
 app.get("/api/profile", async (req, res) => {
   const name = String(req.query.name || "").trim();
@@ -490,14 +562,18 @@ app.get("/api/profile", async (req, res) => {
         Object.assign(profile, rows.data[0], { talent_id: tid });
       }
     }
-    const wantWiki = gazetteer.has(name) || !profile.career_history;
-    if (wantWiki && name) {
-      const wiki = await wikiBio(name);
-      profile.wiki_url = wiki.url;
-      if (!profile.career_history && wiki.extract) profile.wiki_extract = wiki.extract;
-    }
   } catch (err) {
     console.error("profile error:", err.message);
+  }
+  try {
+    if (name) {
+      const wiki = await wikiSearch(name);
+      profile.wiki = wiki;
+      profile.wiki_url = wiki.url;
+      profile.wiki_extract = wiki.extract;
+    }
+  } catch (err) {
+    console.error("profile wiki error:", err.message);
   }
   res.json({ profile });
 });
