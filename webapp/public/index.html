@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>T-Clip — テレビ出演・番組表検索</title>
+  <title>T-Clip — テレビ番組検索β</title>
   <meta name="description" content="地上波・BSの番組表と出演者を横断検索。国会ネクサスの姉妹アプリ。">
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/styles.css?v=2">
 </head>
 <body>
   <header class="site-header">
     <div class="header-inner">
       <a class="brand" href="/">
         <span class="brand-mark">T-Clip</span>
-        <span class="brand-sub">テレビ出演・番組表検索</span>
+        <span class="brand-sub">テレビ番組検索β</span>
       </a>
       <a class="sister" href="https://kokkai-nexus-305630672228.asia-northeast1.run.app/" target="_blank" rel="noopener">
         国会ネクサス
@@ -26,11 +26,6 @@
   </header>
 
   <main>
-    <p class="lede">
-      p330 の地上波EPG検索を、出演者・議員まで広げた公開版です。
-      番組名・内容のキーワード、人物名、国会議員名簿から探せます。
-    </p>
-
     <section id="panel-programs" class="panel">
       <form id="programForm" class="search-form">
         <label class="grow">
@@ -109,11 +104,14 @@
     <p id="status" class="status"></p>
     <h2 id="resultTitle" class="result-title is-hidden"></h2>
     <ul id="results" class="results"></ul>
+    <div id="loadMoreWrap" class="load-more is-hidden">
+      <button type="button" id="loadMoreBtn">さらに10件</button>
+    </div>
   </main>
 
   <footer class="site-footer">
     <p>T-Clip は <a href="https://kokkai-nexus-305630672228.asia-northeast1.run.app/" target="_blank" rel="noopener">国会ネクサス</a> の姉妹アプリです。データは bangumi.org 由来の番組表（地上波7局＋BS7局）と出演リンクです。</p>
   </footer>
-  <script src="/app.js"></script>
+  <script src="/app.js?v=2"></script>
 </body>
 </html>

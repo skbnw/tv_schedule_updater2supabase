@@ -76,11 +76,6 @@ main {
   margin: 0 auto;
   padding: 1.25rem 1rem 3rem;
 }
-.lede {
-  color: var(--muted);
-  font-size: 0.95rem;
-  margin: 0 0 1.1rem;
-}
 
 .search-form {
   display: grid;
@@ -192,6 +187,25 @@ button[type=submit] {
 }
 .person { cursor: pointer; display: flex; justify-content: space-between; gap: 0.8rem; }
 .person:hover, .result:hover { border-color: #c9bfae; }
+.person.is-selected {
+  border-color: var(--navy);
+  background: #f3efe6;
+}
+.load-more {
+  display: flex;
+  justify-content: center;
+  margin: 0.4rem 0 1.2rem;
+}
+.load-more button {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  padding: 0.45rem 1.1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
 
 .site-footer {
   max-width: 960px;

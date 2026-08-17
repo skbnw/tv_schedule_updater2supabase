@@ -13,9 +13,17 @@ const talentTag = document.getElementById("talentTag");
 const talentList = document.getElementById("talentList");
 const politicianList = document.getElementById("politicianList");
 
+const loadMoreWrap = document.getElementById("loadMoreWrap");
+const loadMoreBtn = document.getElementById("loadMoreBtn");
+
 const DOW = ["日", "月", "火", "水", "木", "金", "土"];
+const PAGE_SIZE = 10;
 let currentTab = "programs";
 let politicianCache = [];
+let pagedRows = [];
+let pagedShown = 0;
+let loadObserver = null;
+let autoLoadReady = false;
 
 function escapeHtml(s) {
   return String(s || "").replace(/[&<>"']/g, (c) => ({
@@ -72,25 +80,86 @@ function programParams() {
   return params;
 }
 
-function renderPrograms(rows) {
-  resultsEl.innerHTML = "";
-  for (const r of rows) {
-    const li = document.createElement("li");
-    li.className = "result";
-    const archive = r.source === "archive" ? '<span class="badge">アーカイブ</span>' : "";
-    li.innerHTML = `
-      <div class="meta">${escapeHtml(fmtWhen(r.start_time, r.broadcast_date))} ・ ${escapeHtml(r.channel || "")} ${archive}</div>
-      <h3>${escapeHtml(r.program_title || "(無題)")}</h3>
-      <div class="snippet">${escapeHtml(r.snippet || r.description || "")}</div>
-      <div class="detail">
-        <div><strong>ジャンル</strong> ${escapeHtml(r.genre || "—")}</div>
-        <p>${escapeHtml((r.description_detail || r.description || "（番組内容の登録なし）").trim())}</p>
-        ${r.official_website ? `<p><a href="${escapeHtml(r.official_website)}" target="_blank" rel="noopener">公式サイト</a></p>` : ""}
-      </div>
-    `;
-    li.addEventListener("click", () => li.classList.toggle("is-open"));
-    resultsEl.appendChild(li);
+function programItem(r) {
+  const li = document.createElement("li");
+  li.className = "result";
+  const archive = r.source === "archive" ? '<span class="badge">アーカイブ</span>' : "";
+  li.innerHTML = `
+    <div class="meta">${escapeHtml(fmtWhen(r.start_time, r.broadcast_date))} ・ ${escapeHtml(r.channel || "")} ${archive}</div>
+    <h3>${escapeHtml(r.program_title || "(無題)")}</h3>
+    <div class="snippet">${escapeHtml(r.snippet || r.description || "")}</div>
+    <div class="detail">
+      <div><strong>ジャンル</strong> ${escapeHtml(r.genre || "—")}</div>
+      <p>${escapeHtml((r.description_detail || r.description || "（番組内容の登録なし）").trim())}</p>
+      ${r.official_website ? `<p><a href="${escapeHtml(r.official_website)}" target="_blank" rel="noopener">公式サイト</a></p>` : ""}
+    </div>
+  `;
+  li.addEventListener("click", () => li.classList.toggle("is-open"));
+  return li;
+}
+
+function updateLoadMore() {
+  const remaining = pagedRows.length - pagedShown;
+  if (remaining <= 0) {
+    loadMoreWrap.classList.add("is-hidden");
+    return;
   }
+  loadMoreWrap.classList.remove("is-hidden");
+  loadMoreBtn.textContent = `さらに${Math.min(PAGE_SIZE, remaining)}件`;
+}
+
+function appendPage() {
+  if (pagedShown >= pagedRows.length) {
+    updateLoadMore();
+    return;
+  }
+  const next = pagedRows.slice(pagedShown, pagedShown + PAGE_SIZE);
+  for (const row of next) resultsEl.appendChild(programItem(row));
+  pagedShown += next.length;
+  setStatus(`${pagedShown} / ${pagedRows.length} 件`);
+  updateLoadMore();
+}
+
+function startPagedList(rows) {
+  pagedRows = rows;
+  pagedShown = 0;
+  autoLoadReady = false;
+  resultsEl.innerHTML = "";
+  appendPage();
+  if (loadObserver) loadObserver.disconnect();
+  if (pagedShown < pagedRows.length) {
+    const unlock = () => { autoLoadReady = true; };
+    window.addEventListener("scroll", unlock, { once: true, passive: true });
+    loadObserver = new IntersectionObserver((entries) => {
+      if (!autoLoadReady) return;
+      if (entries.some((e) => e.isIntersecting)) appendPage();
+    }, { rootMargin: "80px" });
+    loadObserver.observe(loadMoreWrap);
+  }
+}
+
+function stopPagedList() {
+  pagedRows = [];
+  pagedShown = 0;
+  loadMoreWrap.classList.add("is-hidden");
+  if (loadObserver) {
+    loadObserver.disconnect();
+    loadObserver = null;
+  }
+}
+
+function renderPrograms(rows) {
+  stopPagedList();
+  resultsEl.innerHTML = "";
+  for (const r of rows) resultsEl.appendChild(programItem(r));
+}
+
+function sortNewest(rows) {
+  return [...rows].sort((a, b) => {
+    const ka = String(a.start_time || a.broadcast_date || "");
+    const kb = String(b.start_time || b.broadcast_date || "");
+    return kb.localeCompare(ka);
+  });
 }
 
 async function searchPrograms() {
@@ -100,6 +169,7 @@ async function searchPrograms() {
   setTitle("");
   talentList.innerHTML = "";
   politicianList.innerHTML = "";
+  stopPagedList();
   const res = await fetch(`/api/search?${params.toString()}`);
   if (!res.ok) {
     setStatus("検索に失敗しました");
@@ -120,7 +190,11 @@ function renderPeople(target, rows, onPick) {
       ? `${r.appearances}件 / 最新 ${r.latest_date || "—"}`
       : `${r.tv_hits || 0}件 / ${r.party || ""} ${r.chamber || ""}`;
     li.innerHTML = `<span><strong>${escapeHtml(r.name)}</strong></span><span class="meta">${escapeHtml(meta)}</span>`;
-    li.addEventListener("click", () => onPick(r));
+    li.addEventListener("click", () => {
+      target.querySelectorAll(".person").forEach((el) => el.classList.remove("is-selected"));
+      li.classList.add("is-selected");
+      onPick(r);
+    });
     target.appendChild(li);
   }
 }
@@ -138,6 +212,7 @@ async function searchTalents() {
   setStatus("検索中…");
   resultsEl.innerHTML = "";
   politicianList.innerHTML = "";
+  stopPagedList();
   const res = await fetch(`/api/talents?${params.toString()}`);
   if (!res.ok) {
     setStatus("出演者の取得に失敗しました");
@@ -152,14 +227,20 @@ async function searchTalents() {
 async function loadAppearances(person) {
   setStatus("出演番組を取得中…");
   setTitle(`${person.name} の出演番組`);
+  stopPagedList();
+  resultsEl.innerHTML = "";
   const res = await fetch(`/api/talents/${encodeURIComponent(person.talent_id)}/appearances`);
   if (!res.ok) {
     setStatus("出演番組の取得に失敗しました");
     return;
   }
   const { results } = await res.json();
-  setStatus(`${results.length} 件`);
-  renderPrograms(results);
+  if (!results.length) {
+    setStatus("出演番組はありません");
+    return;
+  }
+  startPagedList(sortNewest(results));
+  resultTitle.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 async function loadPoliticians() {
@@ -207,6 +288,7 @@ function switchTab(name) {
   });
   resultsEl.innerHTML = "";
   setTitle("");
+  stopPagedList();
   if (name === "programs") searchPrograms();
   if (name === "politicians" && politicianCache.length === 0) loadPoliticians();
 }
@@ -233,6 +315,7 @@ document.querySelectorAll(".chip").forEach((btn) => {
     searchPrograms();
   });
 });
+loadMoreBtn.addEventListener("click", appendPage);
 
 async function boot() {
   const [chRes, catRes] = await Promise.all([
